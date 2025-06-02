@@ -1,11 +1,10 @@
-use super::{Span, ErrorContext, parser};
+use super::{SpannedString, Span, ErrorContext, parser};
 use parser::*;
 
 #[derive(Debug)]
 pub struct Procedure {
 	pub parameters: Vec<String>,
 	pub instructions: Vec<Instruction>,
-	// TODO(pat.m): result type
 }
 
 #[derive(Debug)]
@@ -62,12 +61,12 @@ impl Instruction {
 }
 
 
-struct BuilderCtx<'e, 'e2> {
-	error_ctx: &'e mut ErrorContext<'e2>,
+struct BuilderCtx<'e> {
+	error_ctx: &'e ErrorContext<'e>,
 	instructions: Vec<Instruction>,
 }
 
-impl BuilderCtx<'_, '_> {
+impl BuilderCtx<'_> {
 	fn push(&mut self, inst: Instruction) { self.instructions.push(inst); }
 
 	fn null(&mut self) { self.push(Instruction::PushNull); }
@@ -81,7 +80,7 @@ impl BuilderCtx<'_, '_> {
 }
 
 
-pub fn build_procedure(error_ctx: &'_ mut ErrorContext<'_>, parameters: &[String], block: &AstBlock) -> anyhow::Result<Procedure> {
+pub fn build_procedure(error_ctx: &'_ ErrorContext<'_>, parameters: &[SpannedString], block: &AstBlock) -> anyhow::Result<Procedure> {
 	let mut ctx = BuilderCtx {
 		error_ctx,
 		instructions: Vec::new(),
@@ -90,12 +89,12 @@ pub fn build_procedure(error_ctx: &'_ mut ErrorContext<'_>, parameters: &[String
 	build_block(&mut ctx, block);
 
 	Ok(Procedure {
-		parameters: parameters.to_owned(),
+		parameters: parameters.iter().map(|s| s.text.clone()).collect(),
 		instructions: ctx.instructions,
 	})
 }
 
-fn build_discard(ctx: &mut BuilderCtx<'_, '_>, count: u32) {
+fn build_discard(ctx: &mut BuilderCtx<'_>, count: u32) {
 	let mut count = count as usize;
 	let num_instructions = ctx.instructions.len();
 
@@ -133,7 +132,7 @@ fn build_discard(ctx: &mut BuilderCtx<'_, '_>, count: u32) {
 	}
 }
 
-fn build_block(ctx: &mut BuilderCtx<'_, '_>, block: &AstBlock) {
+fn build_block(ctx: &mut BuilderCtx<'_>, block: &AstBlock) {
 	for expression in block.body.iter() {
 		match expression {
 			AstExpression::Call { name, arguments } => {
@@ -142,9 +141,6 @@ fn build_block(ctx: &mut BuilderCtx<'_, '_>, block: &AstBlock) {
 			},
 
 			_ => {
-				// TODO(pat.m): span
-				// ctx.error_ctx.error_at_end(format!("Unhandled AST node: {expression:?}"));
-				// break;
 				build_push_expression(ctx, expression);
 				ctx.discard(1);
 			}
@@ -155,7 +151,7 @@ fn build_block(ctx: &mut BuilderCtx<'_, '_>, block: &AstBlock) {
 	ctx.null();
 }
 
-fn build_call_expression(ctx: &mut BuilderCtx<'_, '_>, name: &AstExpression, arguments: &[AstExpression]) {
+fn build_call_expression(ctx: &mut BuilderCtx<'_>, name: &AstExpression, arguments: &[AstExpression]) {
 	for argument in arguments.iter() {
 		build_push_expression(ctx, argument);
 	}
@@ -165,17 +161,17 @@ fn build_call_expression(ctx: &mut BuilderCtx<'_, '_>, name: &AstExpression, arg
 	ctx.call(arguments.len() as u32);
 }
 
-fn build_push_expression(ctx: &mut BuilderCtx<'_, '_>, expr: &AstExpression) {
+fn build_push_expression(ctx: &mut BuilderCtx<'_>, expr: &AstExpression) {
 	match expr {
-		AstExpression::Name(name) => ctx.push(Instruction::Lookup(name.clone())),
+		AstExpression::Name(name) => ctx.push(Instruction::Lookup(name.text.clone())),
 		AstExpression::Lookup{parent, key} => {
 			build_push_expression(ctx, parent);
-			ctx.push(Instruction::TableLookup(key.clone()))
+			ctx.push(Instruction::TableLookup(key.text.clone()))
 		},
-		AstExpression::LiteralBool(value) => ctx.bool(*value),
-		AstExpression::LiteralInt(value) => ctx.int(*value),
-		AstExpression::LiteralFloat(value) => ctx.float(*value),
-		AstExpression::LiteralString(value) => ctx.string(value.clone()),
+		AstExpression::LiteralBool(value, _span) => ctx.bool(*value),
+		AstExpression::LiteralInt(value, _span) => ctx.int(*value),
+		AstExpression::LiteralFloat(value, _span) => ctx.float(*value),
+		AstExpression::LiteralString(value) => ctx.string(value.text.clone()),
 
 		AstExpression::Block(block) => build_block(ctx, block),
 
@@ -197,8 +193,7 @@ fn build_push_expression(ctx: &mut BuilderCtx<'_, '_>, expr: &AstExpression) {
 		},
 
 		_ => {
-			// TODO(pat.m): span
-			ctx.error_ctx.error_at_end(format!("Unimplemented {expr:?}"));
+			ctx.error_ctx.error(expr.span(), format!("Unimplemented {expr:?}"));
 			ctx.null();
 		}
 	}

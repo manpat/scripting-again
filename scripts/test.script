@@ -7,7 +7,7 @@ fn foobar() {
 	})
 }
 
-// event on_instantiate() {
-// 	print("instantiate");
-// 	foobar();
-// }
+event on_instantiate() {
+	print("instantiate");
+	foobar();
+}

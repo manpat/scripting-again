@@ -66,7 +66,7 @@ pub struct TokenTree {
 	pub tokens: Vec<Token>,
 }
 
-pub fn parse<'s>(error_ctx: &mut ErrorContext<'s>, text: &'s str) -> anyhow::Result<TokenTree> {
+pub fn parse(error_ctx: &ErrorContext<'_>, text: &str) -> anyhow::Result<TokenTree> {
 	let mut tokens = Vec::new();
 
 	let mut parser = Lexer {
@@ -120,7 +120,7 @@ pub fn parse<'s>(error_ctx: &mut ErrorContext<'s>, text: &'s str) -> anyhow::Res
 
 
 struct Lexer<'s, 'e> {
-	error_ctx: &'e mut ErrorContext<'s>,
+	error_ctx: &'e ErrorContext<'e>,
 	text: &'s [u8],
 	span_offset: usize,
 }

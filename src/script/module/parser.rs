@@ -1,4 +1,4 @@
-use super::{Span, ErrorContext, lexer};
+use super::{Span, SpannedString, ErrorContext, lexer};
 use lexer::{Token, TokenTree, TokenKind};
 
 #[derive(Debug)]
@@ -11,14 +11,14 @@ pub enum AstItem {
 	Error,
 
 	Fn {
-		name: String,
-		parameters: Vec<String>,
+		name: SpannedString,
+		parameters: Vec<SpannedString>,
 		body: AstBlock,
 	},
 
 	Event {
-		name: String,
-		parameters: Vec<String>,
+		name: SpannedString,
+		parameters: Vec<SpannedString>,
 		body: AstBlock,
 	},
 }
@@ -26,6 +26,7 @@ pub enum AstItem {
 #[derive(Debug)]
 pub struct AstBlock {
 	pub body: Vec<AstExpression>,
+	pub span: Span,
 	pub has_tail_expression: bool,
 }
 
@@ -43,16 +44,16 @@ pub enum BinaryOpKind {
 pub enum AstExpression {
 	Error,
 
-	Name(String),
+	Name(SpannedString),
 	Lookup {
 		parent: Box<AstExpression>,
-		key: String,
+		key: SpannedString,
 	},
 
-	LiteralString(String),
-	LiteralInt(i64),
-	LiteralFloat(f64),
-	LiteralBool(bool),
+	LiteralString(SpannedString),
+	LiteralInt(i64, Span),
+	LiteralFloat(f64, Span),
+	LiteralBool(bool, Span),
 
 	Block(AstBlock),
 
@@ -72,8 +73,34 @@ pub enum AstExpression {
 	},
 }
 
-pub fn parse(error_ctx: &mut ErrorContext<'_>, tree: &TokenTree) -> anyhow::Result<SyntaxTree> {
-	let mut parser = Parser { error_ctx, tokens: &tree.tokens };
+impl AstExpression {
+	pub fn span(&self) -> Span {
+		use AstExpression::*;
+
+		match self {
+			Error => Span::invalid(),
+
+			Name(s) => s.span,
+			Lookup{parent, key} => Span::join(parent.span(), key.span),
+
+			LiteralString(s) => s.span,
+			LiteralInt(_, span) => *span,
+			LiteralFloat(_, span) => *span,
+			LiteralBool(_, span) => *span,
+
+			Block(block) => block.span,
+
+			Negate{..} => unimplemented!(),
+
+			BinaryOp{left, right, ..} => Span::join(left.span(), right.span()),
+			Call{name, arguments} if arguments.is_empty() => name.span(),
+			Call{name, arguments} => Span::join(name.span(), arguments.last().unwrap().span()),
+		}
+	}
+}
+
+pub fn parse(error_ctx: &ErrorContext<'_>, tree: &TokenTree) -> anyhow::Result<SyntaxTree> {
+	let mut parser = Parser { error_ctx, tokens: &tree.tokens, spans: Vec::new(), prev_span: Span::invalid() };
 	let mut items = Vec::new();
 
 	while !parser.error_ctx.has_errors() && !parser.tokens.is_empty() {
@@ -86,18 +113,36 @@ pub fn parse(error_ctx: &mut ErrorContext<'_>, tree: &TokenTree) -> anyhow::Resu
 // https://docs.python.org/3/reference/grammar.html
 // https://www.lua.org/manual/5.3/manual.html
 
-struct Parser<'e, 'e2, 't> {
-	error_ctx: &'e mut ErrorContext<'e2>,
+struct Parser<'e, 't> {
+	error_ctx: &'e ErrorContext<'e>,
 	tokens: &'t [Token],
+	spans: Vec<Span>,
+	prev_span: Span,
 }
 
-impl<'e, 'e2, 't> Parser<'e, 'e2, 't> {
+impl<'e, 't> Parser<'e, 't> {
+	fn mark_prev_span(&mut self) {
+		self.spans.push(self.prev_span);
+	}
+
+	fn extend_span(&mut self, span: Span) {
+		self.prev_span = span;
+		if let Some(top) = self.spans.last_mut() {
+			top.extend(span);
+		}
+	}
+
+	fn end_span(&mut self) -> Span {
+		self.spans.pop().unwrap()
+	}
+
 	fn peek_next(&mut self) -> Option<&'t Token> {
 		self.tokens.first()
 	}
 
 	fn take_next(&mut self) -> Option<&'t Token> {
 		self.tokens.split_off_first()
+			.inspect(|token| self.extend_span(token.span))
 	}
 
 	fn accept(&mut self, kind: &TokenKind) -> bool {
@@ -127,18 +172,18 @@ impl<'e, 'e2, 't> Parser<'e, 'e2, 't> {
 		true
 	}
 
-	fn expect_word(&mut self) -> &'t str {
+	fn expect_word(&mut self) -> SpannedString {
 		let Some(token) = self.take_next() else {
 			self.error_ctx.unexpected_eof("word");
-			return "<error>";
+			return SpannedString{ text: String::new(), span: Span::invalid() };
 		};
 
 		let TokenKind::Word(word) = &token.kind else {
 			self.error_ctx.expected_token(token, "word");
-			return "<error>";
+			return SpannedString{ text: String::new(), span: Span::invalid() };
 		};
 
-		word.as_str()
+		SpannedString::from((word.as_str(), token.span))
 	}
 
 	fn parse_top_level_item(&mut self) -> AstItem {
@@ -158,7 +203,7 @@ impl<'e, 'e2, 't> Parser<'e, 'e2, 't> {
 				let body = self.parse_block();
 
 				AstItem::Event {
-					name: name.to_string(),
+					name,
 					parameters,
 					body,
 				}
@@ -174,7 +219,7 @@ impl<'e, 'e2, 't> Parser<'e, 'e2, 't> {
 				let body = self.parse_block();
 
 				AstItem::Fn {
-					name: name.to_string(),
+					name,
 					parameters,
 					body,
 				}
@@ -188,6 +233,8 @@ impl<'e, 'e2, 't> Parser<'e, 'e2, 't> {
 	}
 
 	fn parse_block(&mut self) -> AstBlock {
+		self.mark_prev_span();
+
 		let mut statements = Vec::new();
 		let mut has_tail_expression = false;
 
@@ -204,14 +251,15 @@ impl<'e, 'e2, 't> Parser<'e, 'e2, 't> {
 		AstBlock {
 			body: statements,
 			has_tail_expression,
+			span: self.end_span(),
 		}
 	}
 
-	fn parse_parameters(&mut self) -> Vec<String> {
+	fn parse_parameters(&mut self) -> Vec<SpannedString> {
 		let mut parameters = Vec::new();
 
 		while !self.accept(&TokenKind::RightParen) && !self.error_ctx.has_errors() {
-			parameters.push(self.expect_word().to_owned());
+			parameters.push(self.expect_word());
 			if !self.accept(&TokenKind::Comma) {
 				self.expect(&TokenKind::RightParen);
 				break
@@ -316,7 +364,7 @@ impl<'e, 'e2, 't> Parser<'e, 'e2, 't> {
 			if self.accept(&TokenKind::Dot) {
 				expr = AstExpression::Lookup {
 					parent: Box::new(expr),
-					key: self.expect_word().to_string(),
+					key: self.expect_word(),
 				};
 
 				continue
@@ -357,13 +405,13 @@ impl<'e, 'e2, 't> Parser<'e, 'e2, 't> {
 			}
 
 			TokenKind::Word(word) => {
-				AstExpression::Name(word.to_string())
+				AstExpression::Name((word.clone(), token.span).into())
 			}
 
-			TokenKind::LiteralInt(value) => AstExpression::LiteralInt(*value),
-			TokenKind::LiteralFloat(value) => AstExpression::LiteralFloat(*value),
-			TokenKind::LiteralString(value) => AstExpression::LiteralString(value.clone()),
-			TokenKind::LiteralBool(value) => AstExpression::LiteralBool(*value),
+			TokenKind::LiteralInt(value) => AstExpression::LiteralInt(*value, token.span),
+			TokenKind::LiteralFloat(value) => AstExpression::LiteralFloat(*value, token.span),
+			TokenKind::LiteralString(value) => AstExpression::LiteralString((value.clone(), token.span).into()),
+			TokenKind::LiteralBool(value) => AstExpression::LiteralBool(*value, token.span),
 
 			_ => {
 				self.error_ctx.unexpected_token(token);
