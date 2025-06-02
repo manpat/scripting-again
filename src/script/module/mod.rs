@@ -122,7 +122,7 @@ impl ErrorContext<'_> {
 }
 
 fn index_to_line_column(text: &str, index: usize) -> (u32, u32) {
-	let prefix = &text[..index+1];
+	let prefix = &text[..(index+1).min(text.len())];
 	let num_lines = prefix.lines().count() as u32;
 	let last_line = prefix.lines().next_back().unwrap().len() as u32;
 	(num_lines, last_line)
