@@ -1,0 +1,13 @@
+
+fn foobar() {
+	// core.print(foo() + bar());
+	print({
+		bar(abc + zyx);
+		www
+	})
+}
+
+// event on_instantiate() {
+// 	print("instantiate");
+// 	foobar();
+// }
