@@ -1,5 +1,6 @@
 mod lexer;
 mod parser;
+mod ast;
 mod procedure;
 
 use std::collections::HashMap;
@@ -32,7 +33,7 @@ impl Module {
 
 		for item in syntax_tree.items {
 			match item {
-				parser::AstItem::Fn{name, parameters, body} => {
+				ast::AstItem::Fn{name, parameters, body} => {
 					if functions.contains_key(&name.text) {
 						error_ctx.error(name.span, format!("Function {name} already defined"));
 						continue
@@ -44,7 +45,7 @@ impl Module {
 					functions.insert(name.text.clone(), procedure);
 				}
 
-				parser::AstItem::Event{name, parameters, body} => {
+				ast::AstItem::Event{name, parameters, body} => {
 					if events.contains_key(&name.text) {
 						error_ctx.error(name.span, format!("Event {name} already defined"));
 						continue
