@@ -1,5 +1,3 @@
-mod parser;
-mod ast;
 mod procedure;
 
 use crate::script::{*};
@@ -21,7 +19,7 @@ impl Module {
 			anyhow::bail!("Failed to lex");
 		}
 
-		let syntax_tree = parser::parse(&error_ctx, &token_tree)?;
+		let syntax_tree = ast::parse(&error_ctx, &token_tree)?;
 		if error_ctx.has_errors() {
 			anyhow::bail!("Failed to parse");
 		}

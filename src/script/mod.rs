@@ -1,4 +1,5 @@
 mod lexer;
+mod ast;
 
 pub mod module;
 pub mod execution;

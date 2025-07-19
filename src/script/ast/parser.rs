@@ -1,4 +1,4 @@
-use super::{Span, SpannedString, ErrorContext, ast, lexer};
+use crate::script::{Span, SpannedString, ErrorContext, ast, lexer};
 
 use ast::*;
 use lexer::{Token, TokenTree, TokenKind};
