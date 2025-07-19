@@ -94,3 +94,33 @@ fn comments() {
 	assert_lexes!("/*//*/", Ok());
 	assert_lexes!("// /*\n*/", Ok(TokenKind::Asterisk, TokenKind::Slash));
 }
+
+#[test]
+fn strings() {
+	assert_lexes!("\"\"", Ok(TokenKind::LiteralString("".into())));
+	assert_lexes!("\"abc\"", Ok(TokenKind::LiteralString("abc".into())));
+	assert_lexes!("\"abc\n\"", Ok(TokenKind::LiteralString("abc\n".into())));
+	assert_lexes!("\"ab\\\"c\"", Ok(TokenKind::LiteralString("ab\"c".into())));
+	assert_lexes!("\"ab\\nc\"", Ok(TokenKind::LiteralString("ab\nc".into())));
+	assert_lexes!("\"ab\\tc\"", Ok(TokenKind::LiteralString("ab\tc".into())));
+	assert_lexes!("\"ab\\\\c\"", Ok(TokenKind::LiteralString("ab\\c".into())));
+	assert_lexes!("\"", Err);
+	assert_lexes!("\"\\5\"", Err);
+}
+
+#[test]
+fn numbers() {
+	assert_lexes!("1", Ok(TokenKind::LiteralInt(1)));
+	assert_lexes!("1a", Err);
+	assert_lexes!("1 0", Ok(TokenKind::LiteralInt(1), TokenKind::LiteralInt(0)));
+	assert_lexes!("1 .0", Ok(TokenKind::LiteralInt(1), TokenKind::Dot, TokenKind::LiteralInt(0)));
+	assert_lexes!("1.", Err);
+	assert_lexes!("1.0", Ok(TokenKind::LiteralFloat(1.0)));
+	assert_lexes!("0xFF", Ok(TokenKind::LiteralInt(255)));
+	assert_lexes!("0xff", Ok(TokenKind::LiteralInt(255)));
+	assert_lexes!("0b101", Ok(TokenKind::LiteralInt(5)));
+	assert_lexes!("0xFFFFFFFF", Ok(TokenKind::LiteralInt(0xffffffff)));
+	assert_lexes!("0xFFFFFFFFffffffff", Err); // Too big
+	assert_lexes!("0x7FFFFFFFffffffff", Ok(TokenKind::LiteralInt(0x7FFFFFFFffffffff)));
+
+}

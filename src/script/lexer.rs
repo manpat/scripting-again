@@ -212,7 +212,74 @@ impl<'s, 'e> Lexer<'s, 'e> {
 		c
 	}
 
-	fn parse_number(&mut self) -> Token { unimplemented!() }
+	fn find_word_boundary_from(&self, start: usize) -> usize {
+		if start >= self.text.len() {
+			return self.text.len()
+		}
+
+		self.text[start..].iter()
+			.position(|c| !c.is_ascii_alphanumeric())
+			.map(|index| index + start)
+			.unwrap_or(self.text.len())
+	}
+
+	fn parse_float(&mut self, dot_index: usize) -> Token {
+		let end_index = self.find_word_boundary_from(dot_index + 1);
+		let text = str::from_utf8(&self.text[..end_index]).unwrap();
+
+		if end_index == dot_index + 1 {
+			let span = self.consume(end_index);
+			self.error_ctx.error(span, format!("'{text}' is not a valid float literal"));
+			return Token::error(span.begin);
+		}
+
+		let Ok(value) = text.parse() else {
+			let span = self.consume(end_index);
+			self.error_ctx.error(span, format!("'{text}' is not a valid float literal"));
+			return Token::error(span.begin);
+		};
+
+		Token {
+			kind: TokenKind::LiteralFloat(value),
+			span: self.consume(end_index),
+		}
+	}
+
+	fn parse_radix_int_of_length(&mut self, radix: u32, start: usize, end: usize) -> Token {
+		let text = str::from_utf8(&self.text[start..end]).unwrap();
+		let Ok(value) = i64::from_str_radix(text, radix) else {
+			let span = self.consume(end);
+			self.error_ctx.error(span, format!("'{text}' is not a valid radix-{radix} integer"));
+			return Token::error(start);
+		};
+
+		Token {
+			kind: TokenKind::LiteralInt(value),
+			span: self.consume(end),
+		}
+	}
+
+	fn parse_number(&mut self) -> Token {
+		assert!(self.peek().is_ascii_digit());
+
+		let first_boundary = self.find_word_boundary_from(0);
+		if self.text.get(first_boundary) == Some(&b'.') {
+			return self.parse_float(first_boundary)
+		}
+
+		let mut radix = 10;
+		let mut skip = 0;
+
+		if self.text.starts_with(b"0x") {
+			radix = 16;
+			skip = 2;
+		} else if self.text.starts_with(b"0b") {
+			radix = 2;
+			skip = 2;
+		}
+
+		self.parse_radix_int_of_length(radix, skip, first_boundary)
+	}
 
 	fn parse_string(&mut self) -> Token {
 		assert!(self.peek() == b'"');
