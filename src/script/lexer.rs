@@ -148,8 +148,13 @@ impl<'s, 'e> Lexer<'s, 'e> {
 						}
 
 						Some(b'*') => {
-							self.consume(2);
+							let start_span = self.consume(2);
 							self.consume_pairs_until(|cs| cs == b"*/");
+							if !self.text.starts_with(b"*/") {
+								self.error_ctx.error(start_span, format!("Comment block not terminated"));
+								return
+							}
+
 							self.consume(2);
 						}
 

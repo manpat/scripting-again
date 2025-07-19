@@ -31,7 +31,11 @@ macro_rules! assert_lexes {
 	};
 
 	($text:expr, Err) => {
-		assert!(test_lex($text).is_err())
+		let text = $text;
+		match test_lex(text) {
+			Err(_) => {},
+			x => panic!("'{text}' failed to produce an error. got '{x:?}'"),
+		}
 	};
 }
 
@@ -76,3 +80,17 @@ fn words() {
 	assert_lexes!("e.fn", Ok(TokenKind::Word("e".into()), TokenKind::Dot, TokenKind::Fn));
 }
 
+#[test]
+fn comments() {
+	assert_lexes!("//", Ok());
+	assert_lexes!("//fn", Ok());
+	assert_lexes!("fn//fn", Ok(TokenKind::Fn));
+	assert_lexes!("fn/*fn*/", Ok(TokenKind::Fn));
+	assert_lexes!("fn/*fn", Err);
+	assert_lexes!("fn/ *fn", Ok(TokenKind::Fn, TokenKind::Slash, TokenKind::Asterisk, TokenKind::Fn));
+	assert_lexes!("/*\nfoobar*/", Ok());
+	assert_lexes!("/*\nfoobar\n*/", Ok());
+	assert_lexes!("/*/**/", Ok());
+	assert_lexes!("/*//*/", Ok());
+	assert_lexes!("// /*\n*/", Ok(TokenKind::Asterisk, TokenKind::Slash));
+}
