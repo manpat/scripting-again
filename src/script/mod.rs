@@ -8,7 +8,14 @@ pub use module::*;
 pub use execution::*;
 
 
+mod ssa {
+	mod types;
+	mod compile;
+	mod formatting;
 
+	pub use types::*;
+	pub use compile::*;
+}
 
 
 // #[derive(Debug)]
