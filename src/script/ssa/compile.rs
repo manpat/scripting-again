@@ -96,8 +96,7 @@ fn compile_function(mut compile_ctx: FnCompileCtx, body: &ast::AstBlock) -> anyh
 
 	// Jump to exit block
 	if builder.id != function_exit {
-		builder.jump(function_exit);
-		builder = function.build_block(function_exit);
+		builder.jump_and_switch(function_exit);
 	}
 
 	builder.add_inst(ssa::InstData::Return { value: final_inst });
