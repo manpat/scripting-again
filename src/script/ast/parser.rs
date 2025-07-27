@@ -232,6 +232,11 @@ impl<'e, 't> Parser<'e, 't> {
 			};
 		}
 
+		if self.accept(&TokenKind::Loop) {
+			self.expect(&TokenKind::LeftBrace);
+			return AstExpression::Loop(self.parse_block());
+		}
+
 		self.parse_expression()
 	}
 
