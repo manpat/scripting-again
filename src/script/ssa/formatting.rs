@@ -28,6 +28,10 @@ pub fn format_function(f: &mut fmt::Formatter, function: &Function) -> fmt::Resu
 		// 	f.write_str("\t\tsucc: ")?;
 		// }
 
+		if block_key == function.exit {
+			f.write_str("\t\texit\n")?;
+		}
+
 		for &successor in block.successors.iter() {
 			// write!(f, "{successor:?} ")?;
 			if !seen.contains(&successor) {
@@ -36,7 +40,27 @@ pub fn format_function(f: &mut fmt::Formatter, function: &Function) -> fmt::Resu
 		}
 
 		f.write_str("\n")?;
-	} 
+	}
+
+
+	let unseen: Vec<_> = function.blocks.keys()
+		.filter(|key| !seen.contains(&key))
+		.collect();
+
+	if !unseen.is_empty() {
+		f.write_str("orphaned blocks:\n")?;
+
+		for block_key in unseen {
+			let block = &function.blocks[block_key];
+
+			write!(f, "\t{block_key:?}:\n")?;
+			for &inst_key in block.insts.iter() {
+				f.write_str("\t\t")?;
+				format_inst(f, function, inst_key)?;
+				f.write_str("\n")?;
+			}
+		}
+	}
 
 	f.write_str("}\n")?;
 	Ok(())
@@ -56,7 +80,7 @@ fn format_inst(f: &mut fmt::Formatter, function: &Function, inst_key: InstKey) -
 
 		InstData::Jump(to) => write!(f, "Jump({to:?})"),
 		InstData::JumpIf{condition, then_block, else_block} =>
-			write!(f, "JumpIf({}, {then_block:?}, {else_block:?})", function.get_inst_name(condition)),
+			write!(f, "JumpIf({}, then: {then_block:?}, else: {else_block:?})", function.get_inst_name(condition)),
 
 		InstData::Add(l, r) => {
 			write!(f, "{} + {}", function.get_inst_name(l), function.get_inst_name(r))

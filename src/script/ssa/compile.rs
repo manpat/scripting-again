@@ -30,6 +30,10 @@ pub fn compile(_error_ctx: &ErrorContext, ast: &ast::SyntaxTree) -> anyhow::Resu
 	})
 }
 
+#[derive(Default)]
+struct Scope {
+
+}
 
 #[derive(Default)]
 struct FnCompileCtx {

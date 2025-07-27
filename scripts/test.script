@@ -6,8 +6,3 @@ fn foobar() {
 		www
 	})
 }
-
-event on_instantiate() {
-	print("instantiate");
-	foobar();
-}
