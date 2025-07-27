@@ -132,6 +132,16 @@ pub enum AstExpression {
 }
 
 impl AstExpression {
+	pub fn requires_separator(&self) -> bool {
+		use AstExpression::*;
+
+		match self {
+			// All expressions terminating in a block should be unambiguous
+			Block{..} | If{..} | Loop{..} | While{..} => false,
+			_ => true,
+		}
+	}
+
 	pub fn span(&self) -> Span {
 		use AstExpression::*;
 

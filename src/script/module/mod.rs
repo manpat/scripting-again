@@ -24,6 +24,8 @@ impl Module {
 			anyhow::bail!("Failed to parse");
 		}
 
+		dbg!(&syntax_tree);
+
 		let ssa_form = ssa::compile(&error_ctx, &syntax_tree)?;
 		if error_ctx.has_errors() {
 			anyhow::bail!("Failed to convert to ssa form");

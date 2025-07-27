@@ -139,22 +139,32 @@ impl<'e, 't> Parser<'e, 't> {
 	fn parse_block(&mut self) -> AstBlock {
 		self.mark_prev_span();
 
-		let mut statements = Vec::new();
-		let mut has_tail_expression = false;
+		let mut statements: Vec<AstExpression> = Vec::new();
+		let mut has_unterminated_expression = false;
 
 		while !self.accept(&TokenKind::RightBrace) && !self.error_ctx.has_errors() {
+			// If the last expression is unterminated, and _wasn't_ something ending in a block, then we require a semicolon.
+			if has_unterminated_expression
+				&& let Some(expr) = statements.last()
+				&& expr.requires_separator()
+			{
+				self.expect(&TokenKind::Semicolon);
+				has_unterminated_expression = false;
+				continue;
+			}
+
 			if self.accept(&TokenKind::Semicolon) {
-				has_tail_expression = false;
+				has_unterminated_expression = false;
 				continue;
 			}
 
 			statements.push(self.parse_statement());
-			has_tail_expression = true;
+			has_unterminated_expression = true;
 		}
 
 		AstBlock {
 			body: statements,
-			has_tail_expression,
+			has_tail_expression: has_unterminated_expression,
 			span: self.end_span(),
 		}
 	}
@@ -188,9 +198,39 @@ impl<'e, 't> Parser<'e, 't> {
 	}
 
 	fn parse_statement(&mut self) -> AstExpression {
-		// if
-		// for
-		// let
+		if self.accept(&TokenKind::Let) {
+			return AstExpression::Let {
+				name: self.expect_word(),
+				value: Box::new(self.parse_expression()),
+			};
+		}
+
+		if self.accept(&TokenKind::If) {
+			let condition = Box::new(self.parse_expression());
+
+			self.expect(&TokenKind::LeftBrace);
+			let then_block = self.parse_block();
+			let mut else_block = None;
+
+			if self.accept(&TokenKind::Else) {
+				self.expect(&TokenKind::LeftBrace);
+				else_block = Some(self.parse_block());
+			}
+			// TODO(pat.m): else-if chains
+
+			return AstExpression::If { condition, then_block, else_block };
+		}
+
+		if self.accept(&TokenKind::While) {
+			let condition = Box::new(self.parse_expression());
+
+			self.expect(&TokenKind::LeftBrace);
+
+			return AstExpression::While {
+				condition,
+				body: self.parse_block(),
+			};
+		}
 
 		self.parse_expression()
 	}
@@ -255,6 +295,13 @@ impl<'e, 't> Parser<'e, 't> {
 		if self.accept(&TokenKind::Bang) {
 			return AstExpression::UnaryOp {
 				kind: UnaryOpKind::Not,
+				argument: Box::new(self.parse_expression_unary())
+			}
+		}
+
+		if self.accept(&TokenKind::Minus) {
+			return AstExpression::UnaryOp {
+				kind: UnaryOpKind::Negate,
 				argument: Box::new(self.parse_expression_unary())
 			}
 		}
