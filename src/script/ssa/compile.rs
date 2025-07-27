@@ -15,7 +15,10 @@ pub fn compile(_error_ctx: &ErrorContext, ast: &ast::SyntaxTree) -> anyhow::Resu
 	for item in ast.items.iter() {
 		match item {
 			ast::AstItem::Fn { name, body, .. } | ast::AstItem::Event { name, body, .. } => {
-				let compile_ctx = FnCompileCtx::default();
+				let mut compile_ctx = FnCompileCtx::default();
+
+				// TODO(pat.m): fill in function parameters?
+				compile_ctx.scope_stack.push(Scope::default());
 
 				let function = compile_function(compile_ctx, body)?;
 				functions.insert(name.text.clone(), function);
@@ -44,6 +47,36 @@ struct FnCompileCtx {
 	scope_stack: Vec<Scope>,
 }
 
+impl FnCompileCtx {
+	fn insert_variable(&mut self, name: impl Into<String>, current_inst: ssa::InstKey) {
+		let scope = self.scope_stack.last_mut().unwrap();
+		scope.variables.insert(name.into(), ScopeVariable {
+			current_inst,
+		});
+	}
+
+	fn find_variable_inst(&self, name: impl AsRef<str>) -> ssa::InstKey {
+		let name = name.as_ref();
+
+		for scope in self.scope_stack.iter().rev() {
+			if let Some(variable) = scope.variables.get(name) {
+				return variable.current_inst;
+			}
+		}
+
+		// TODO(pat.m): need to start thinking about spans
+		panic!("{name} not found in scope");
+	}
+
+	fn push_scope(&mut self) {
+		self.scope_stack.push(Scope::default());
+	}
+
+	fn pop_scope(&mut self) {
+		self.scope_stack.pop();
+	}
+}
+
 
 fn compile_function(mut compile_ctx: FnCompileCtx, body: &ast::AstBlock) -> anyhow::Result<ssa::Function> {
 	let mut function = ssa::Function::new();
@@ -51,7 +84,7 @@ fn compile_function(mut compile_ctx: FnCompileCtx, body: &ast::AstBlock) -> anyh
 
 	let mut builder = function.build_block(function.entry);
 
-	let final_inst = compile_ast_block(&mut builder, body)?;
+	let final_inst = compile_ast_block(&mut compile_ctx, &mut builder, body)?;
 
 	// Jump to exit block
 	if builder.id != function_exit {
@@ -100,13 +133,18 @@ fn ast_block_is_safe_to_omit(block: &ast::AstBlock) -> bool {
 }
 
 
-fn compile_ast_expr(builder: &mut ssa::BlockBuilder, expr: &ast::AstExpression) -> anyhow::Result<ssa::InstKey> {
+fn compile_ast_expr(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuilder, expr: &ast::AstExpression) -> anyhow::Result<ssa::InstKey> {
 	use ast::AstExpression as E;
 	use ast::{UnaryOpKind, BinaryOpKind};
 
 	Ok(match expr {
-		E::Block(block) => compile_ast_block(builder, block)?,
-		E::Call(call) => compile_ast_call(builder, call)?,
+		E::Block(block) => {
+			compile_ctx.push_scope();
+			let block_value = compile_ast_block(compile_ctx, builder, block)?;
+			compile_ctx.pop_scope();
+			block_value
+		},
+		E::Call(call) => compile_ast_call(compile_ctx, builder, call)?,
 
 		E::LiteralInt(value, ..) => builder.const_int(*value),
 		E::LiteralFloat(value, ..) => builder.const_float(*value),
@@ -114,7 +152,7 @@ fn compile_ast_expr(builder: &mut ssa::BlockBuilder, expr: &ast::AstExpression) 
 		E::LiteralString(value, ..) => builder.add_inst(ssa::InstData::ConstString(value.text.clone())),
 
 		E::UnaryOp{kind, argument} => {
-			let argument = compile_ast_expr(builder, &argument)?;
+			let argument = compile_ast_expr(compile_ctx, builder, &argument)?;
 			match kind {
 				UnaryOpKind::Not => builder.add_inst(ssa::InstData::Not(argument)),
 				UnaryOpKind::Negate => builder.add_inst(ssa::InstData::Negate(argument)),
@@ -122,8 +160,8 @@ fn compile_ast_expr(builder: &mut ssa::BlockBuilder, expr: &ast::AstExpression) 
 		}
 
 		E::BinaryOp{kind, left, right} => {
-			let left = compile_ast_expr(builder, &left)?;
-			let right = compile_ast_expr(builder, &right)?;
+			let left = compile_ast_expr(compile_ctx, builder, &left)?;
+			let right = compile_ast_expr(compile_ctx, builder, &right)?;
 			match kind {
 				BinaryOpKind::Add => builder.add_inst(ssa::InstData::Add(left, right)),
 				BinaryOpKind::Subtract => builder.add_inst(ssa::InstData::Sub(left, right)),
@@ -140,17 +178,28 @@ fn compile_ast_expr(builder: &mut ssa::BlockBuilder, expr: &ast::AstExpression) 
 			}
 		}
 
+		E::Name(name) => compile_ctx.find_variable_inst(&name.text),
+
+		E::Let{name, value} => {
+			let value = compile_ast_expr(compile_ctx, builder, &value)?;
+			builder.function.update_inst_name(value, &name.text);
+			compile_ctx.insert_variable(&name.text, value);
+
+			// TODO(pat.m): find a way not to need this
+			builder.const_unit()
+		}
+
 		E::Error => anyhow::bail!("Error in AST"),
 		_ => unimplemented!()
 	})
 }
 
 
-fn compile_ast_block(builder: &mut ssa::BlockBuilder, block: &ast::AstBlock) -> anyhow::Result<ssa::InstKey> {
+fn compile_ast_block(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuilder, block: &ast::AstBlock) -> anyhow::Result<ssa::InstKey> {
 	for (index, expression) in block.body.iter().enumerate() {
 		let is_tail_expr = block.has_tail_expression && index == block.body.len() - 1;
 		if is_tail_expr {
-			return compile_ast_expr(builder, expression)
+			return compile_ast_expr(compile_ctx, builder, expression)
 		}
 
 		// Expressions without side effects aren't observable unless they are tail expressions, so omit them.
@@ -158,7 +207,7 @@ fn compile_ast_block(builder: &mut ssa::BlockBuilder, block: &ast::AstBlock) -> 
 			continue
 		}
 
-		compile_ast_expr(builder, expression)?;
+		compile_ast_expr(compile_ctx, builder, expression)?;
 	}
 
 	// No tail expr
@@ -166,11 +215,11 @@ fn compile_ast_block(builder: &mut ssa::BlockBuilder, block: &ast::AstBlock) -> 
 }
 
 
-fn compile_ast_call(builder: &mut ssa::BlockBuilder, call: &ast::AstCall) -> anyhow::Result<ssa::InstKey> {
-	let call_name = compile_ast_expr(builder, &call.name)?;
+fn compile_ast_call(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuilder, call: &ast::AstCall) -> anyhow::Result<ssa::InstKey> {
+	let call_name = compile_ast_expr(compile_ctx, builder, &call.name)?;
 
 	let arguments = call.arguments.iter()
-		.map(|arg| compile_ast_expr(builder, arg))
+		.map(|arg| compile_ast_expr(compile_ctx, builder, arg))
 		.collect::<Result<_, _>>()?;
 
 	Ok(builder.add_inst(ssa::InstData::Call {

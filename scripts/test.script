@@ -1,9 +1,11 @@
 
 fn foobar() {
-	while false {}
-	while false {}
+	let foo = "wee";
+	let bar = {
+		let foo = 123;
+		let foo = foo + 5;
+		foo()
+	};
 
-	if true {} else { 1.0 }
-
-	loop {}
+	foo + bar
 }

@@ -199,8 +199,10 @@ impl<'e, 't> Parser<'e, 't> {
 
 	fn parse_statement(&mut self) -> AstExpression {
 		if self.accept(&TokenKind::Let) {
+			let name = self.expect_word();
+			self.expect(&TokenKind::Assign);
 			return AstExpression::Let {
-				name: self.expect_word(),
+				name,
 				value: Box::new(self.parse_expression()),
 			};
 		}
