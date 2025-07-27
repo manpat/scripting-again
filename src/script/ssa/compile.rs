@@ -30,37 +30,127 @@ pub fn compile(_error_ctx: &ErrorContext, ast: &ast::SyntaxTree) -> anyhow::Resu
 	})
 }
 
+struct ScopeVariable {
+	current_inst: ssa::InstKey,
+}
+
 #[derive(Default)]
 struct Scope {
-
+	variables: HashMap<String, ScopeVariable>,
 }
 
 #[derive(Default)]
 struct FnCompileCtx {
-	// scopes, variables, etc
+	scope_stack: Vec<Scope>,
 }
 
 
 fn compile_function(mut compile_ctx: FnCompileCtx, body: &ast::AstBlock) -> anyhow::Result<ssa::Function> {
 	let mut function = ssa::Function::new();
-
-	let then_block = function.new_block();
-	let else_block = function.new_block();
+	let function_exit = function.exit;
 
 	let mut builder = function.build_block(function.entry);
-	let a = builder.const_int("a", 3);
-	let b = builder.const_int("b", 4);
-	let add = builder.add_inst("add", ssa::InstData::Add(a, b));
 
-	builder.add_inst("if", ssa::InstData::JumpIf{
-		condition: add, then_block, else_block,
-	});
+	let final_inst = compile_ast_block(&mut builder, body)?;
 
-	let mut builder = function.build_block(then_block);
-	builder.jump("jmp", builder.function.exit);
+	// Jump to exit block
+	if builder.id != function_exit {
+		builder.jump(function_exit);
+		builder = function.build_block(function_exit);
+	}
 
-	let mut builder = function.build_block(else_block);
-	builder.jump("jmp", builder.function.exit);
+	builder.add_inst(ssa::InstData::Return { value: final_inst });
 
 	Ok(function)
+}
+
+
+fn ast_expr_has_sideeffects(expr: &ast::AstExpression) -> bool {
+	use ast::AstExpression::*;
+
+	match expr {
+		Error => false,
+
+		Name(..) | Lookup{..} => false,
+		LiteralString(..) | LiteralInt(..) | LiteralFloat(..) | LiteralBool(..) => false,
+
+		UnaryOp {argument, ..} => ast_expr_has_sideeffects(&argument),
+		BinaryOp {left, right, ..} => ast_expr_has_sideeffects(left) || ast_expr_has_sideeffects(right),
+
+		// TODO(pat.m): pure function calls would be nice
+		Call{..} => true,
+		Block(block) => block.body.iter().any(|arg| ast_expr_has_sideeffects(arg)),
+	}
+}
+
+
+fn compile_ast_expr(builder: &mut ssa::BlockBuilder, expr: &ast::AstExpression) -> anyhow::Result<ssa::InstKey> {
+	use ast::AstExpression as E;
+	use ast::{UnaryOpKind, BinaryOpKind};
+
+	Ok(match expr {
+		E::Block(block) => compile_ast_block(builder, block)?,
+		E::Call(call) => compile_ast_call(builder, call)?,
+
+		E::LiteralInt(value, ..) => builder.const_int(*value),
+		E::LiteralFloat(value, ..) => builder.const_float(*value),
+		E::LiteralBool(value, ..) => builder.add_inst(ssa::InstData::ConstBool(*value)),
+		E::LiteralString(value, ..) => builder.add_inst(ssa::InstData::ConstString(value.text.clone())),
+
+		E::UnaryOp{kind, argument} => {
+			let argument = compile_ast_expr(builder, &argument)?;
+			match kind {
+				UnaryOpKind::Not => builder.add_inst(ssa::InstData::Not(argument)),
+			}
+		}
+
+		E::BinaryOp{kind, left, right} => {
+			let left = compile_ast_expr(builder, &left)?;
+			let right = compile_ast_expr(builder, &right)?;
+			match kind {
+				BinaryOpKind::Add => builder.add_inst(ssa::InstData::Add(left, right)),
+				BinaryOpKind::Subtract => builder.add_inst(ssa::InstData::Add(left, right)),
+				BinaryOpKind::Multiply => builder.add_inst(ssa::InstData::Add(left, right)),
+				BinaryOpKind::Divide => builder.add_inst(ssa::InstData::Add(left, right)),
+				BinaryOpKind::Remainder => builder.add_inst(ssa::InstData::Add(left, right)),
+			}
+		}
+
+		E::Error => anyhow::bail!("Error in AST"),
+		_ => unimplemented!()
+	})
+}
+
+
+fn compile_ast_block(builder: &mut ssa::BlockBuilder, block: &ast::AstBlock) -> anyhow::Result<ssa::InstKey> {
+	for (index, expression) in block.body.iter().enumerate() {
+		let is_tail_expr = block.has_tail_expression && index == block.body.len() - 1;
+		if is_tail_expr {
+			return compile_ast_expr(builder, expression)
+		}
+
+		// Expressions without side effects aren't observable unless they are tail expressions, so omit them.
+		if !ast_expr_has_sideeffects(expression) {
+			continue
+		}
+
+		compile_ast_expr(builder, expression)?;
+	}
+
+	// No tail expr
+	Ok(builder.const_unit())
+}
+
+
+fn compile_ast_call(builder: &mut ssa::BlockBuilder, call: &ast::AstCall) -> anyhow::Result<ssa::InstKey> {
+	let call_name = compile_ast_expr(builder, &call.name)?;
+
+	let arguments = call.arguments.iter()
+		.map(|arg| compile_ast_expr(builder, arg))
+		.collect::<Result<_, _>>()?;
+
+	Ok(builder.add_inst(ssa::InstData::Call {
+		target: call_name,
+		arguments,
+	}))
 }

@@ -1,8 +1,4 @@
 
 fn foobar() {
-	core.print(foo() + bar());
-	print({
-		bar(abc + zyx);
-		www
-	})
+	"bar"("foo", 123, true);
 }

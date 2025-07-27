@@ -35,8 +35,8 @@ impl Module {
 			println!("fn {name}() {func}");
 		}
 
-		let mut functions = HashMap::new();
-		let mut events = HashMap::new();
+		let functions = HashMap::new();
+		let events = HashMap::new();
 
 		// for item in syntax_tree.items {
 		// 	match item {

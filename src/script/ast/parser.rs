@@ -276,10 +276,10 @@ impl<'e, 't> Parser<'e, 't> {
 			}
 
 			if self.accept(&TokenKind::LeftParen) {
-				expr = AstExpression::Call {
+				expr = AstExpression::Call( AstCall {
 					name: Box::new(expr),
 					arguments: self.parse_call_arguments()
-				};
+				});
 
 				continue
 			}

@@ -83,7 +83,7 @@ fn build_discard(ctx: &mut BuilderCtx<'_>, count: u32) {
 fn build_block(ctx: &mut BuilderCtx<'_>, block: &AstBlock) {
 	for expression in block.body.iter() {
 		match expression {
-			AstExpression::Call { name, arguments } => {
+			AstExpression::Call(AstCall{ name, arguments }) => {
 				build_call_expression(ctx, name, arguments);
 				ctx.discard(1);
 			},
@@ -136,7 +136,7 @@ fn build_push_expression(ctx: &mut BuilderCtx<'_>, expr: &AstExpression) {
 			}
 		}
 
-		AstExpression::Call { name, arguments } => {
+		AstExpression::Call(AstCall{ name, arguments }) => {
 			build_call_expression(ctx, name, arguments);
 		},
 

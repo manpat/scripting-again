@@ -36,6 +36,12 @@ pub struct AstBlock {
 }
 
 #[derive(Debug)]
+pub struct AstCall {
+	pub name: Box<AstExpression>,
+	pub arguments: Vec<AstExpression>,
+}
+
+#[derive(Debug)]
 pub enum UnaryOpKind {
 	Not,
 }
@@ -78,10 +84,7 @@ pub enum AstExpression {
 		right: Box<AstExpression>,
 	},
 
-	Call {
-		name: Box<AstExpression>,
-		arguments: Vec<AstExpression>,
-	},
+	Call(AstCall),
 }
 
 impl AstExpression {
@@ -104,8 +107,8 @@ impl AstExpression {
 			UnaryOp{..} => unimplemented!(),
 
 			BinaryOp{left, right, ..} => Span::join(left.span(), right.span()),
-			Call{name, arguments} if arguments.is_empty() => name.span(),
-			Call{name, arguments} => Span::join(name.span(), arguments.last().unwrap().span()),
+			Call(AstCall{name, arguments}) if arguments.is_empty() => name.span(),
+			Call(AstCall{name, arguments}) => Span::join(name.span(), arguments.last().unwrap().span()),
 		}
 	}
 }

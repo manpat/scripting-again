@@ -28,10 +28,6 @@ pub fn format_function(f: &mut fmt::Formatter, function: &Function) -> fmt::Resu
 		// 	f.write_str("\t\tsucc: ")?;
 		// }
 
-		if block_key == function.exit {
-			f.write_str("\t\texit\n")?;
-		}
-
 		for &successor in block.successors.iter() {
 			// write!(f, "{successor:?} ")?;
 			if !seen.contains(&successor) {
@@ -71,19 +67,44 @@ pub fn format_function(f: &mut fmt::Formatter, function: &Function) -> fmt::Resu
 fn format_inst(f: &mut fmt::Formatter, function: &Function, inst_key: InstKey) -> fmt::Result {
 	let inst = &function.insts[inst_key];
 
-	write!(f, "{} = ", inst.name)?;
+	if !inst.data.is_terminator() {
+		write!(f, "{} = ", inst.name)?;
+	}
 
 	match inst.data {
+		InstData::ConstUnit => write!(f, "ConstUnit"),
 		InstData::ConstInt(v) => write!(f, "ConstInt({v})"),
 		InstData::ConstFloat(v) => write!(f, "ConstFloat({v})"),
+		InstData::ConstBool(v) => write!(f, "ConstBool({v})"),
+		InstData::ConstString(ref v) => write!(f, "ConstString(\"{v}\")"),
+
 		InstData::LoadGlobal(ref name) => write!(f, "LoadGlobal({name})"),
 
 		InstData::Jump(to) => write!(f, "Jump({to:?})"),
 		InstData::JumpIf{condition, then_block, else_block} =>
 			write!(f, "JumpIf({}, then: {then_block:?}, else: {else_block:?})", function.get_inst_name(condition)),
 
-		InstData::Add(l, r) => {
-			write!(f, "{} + {}", function.get_inst_name(l), function.get_inst_name(r))
-		},
+		InstData::Return{value} => {
+			write!(f, "Return({})", function.get_inst_name(value))
+		}
+
+		InstData::Call{target, ref arguments} => {
+			write!(f, "{}( ", function.get_inst_name(target))?;
+
+			for arg in arguments {
+				write!(f, "{}, ", function.get_inst_name(*arg))?;
+			}
+
+			f.write_str(")")
+		}
+
+		InstData::Not(value) => write!(f, "!{}", function.get_inst_name(value)),
+		InstData::Negate(value) => write!(f, "-{}", function.get_inst_name(value)),
+
+		InstData::Add(l, r) => write!(f, "{} + {}", function.get_inst_name(l), function.get_inst_name(r)),
+		InstData::Sub(l, r) => write!(f, "{} - {}", function.get_inst_name(l), function.get_inst_name(r)),
+		InstData::Mul(l, r) => write!(f, "{} * {}", function.get_inst_name(l), function.get_inst_name(r)),
+		InstData::Div(l, r) => write!(f, "{} / {}", function.get_inst_name(l), function.get_inst_name(r)),
+		InstData::Rem(l, r) => write!(f, "{} % {}", function.get_inst_name(l), function.get_inst_name(r)),
 	}
 }

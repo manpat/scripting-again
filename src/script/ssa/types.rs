@@ -14,8 +14,11 @@ slotmap::new_key_type! {
 
 #[derive(Clone, Debug)]
 pub enum InstData {
+	ConstUnit,
 	ConstInt(i64),
 	ConstFloat(f64),
+	ConstBool(bool),
+	ConstString(String),
 
 	LoadGlobal(String),
 
@@ -27,10 +30,37 @@ pub enum InstData {
 		else_block: BasicBlockKey,
 	},
 
+	Return {
+		value: InstKey,
+	},
+
+	Call {
+		target: InstKey,
+		arguments: SmallVec<[InstKey; 4]>,
+	},
+
+	// Phi {
+
+	// },
+
+	Not(InstKey),
+	Negate(InstKey),
+
 	Add(InstKey, InstKey),
+	Sub(InstKey, InstKey),
+	Mul(InstKey, InstKey),
+	Div(InstKey, InstKey),
+	Rem(InstKey, InstKey),
 }
 
 impl InstData {
+	pub fn is_terminator(&self) -> bool {
+		match *self {
+			InstData::Jump(..) | InstData::JumpIf{..} | InstData::Return{..} => true,
+			_ => false,
+		}
+	}
+
 	pub fn get_successors(&self) -> SmallVec<[BasicBlockKey; 2]> {
 		match *self {
 			InstData::Jump(key) => SmallVec::from_slice(&[key]),
@@ -126,6 +156,10 @@ impl Function {
 			users: SmallVec::default(),
 		})
 	}
+
+	pub fn update_inst_name(&mut self, key: InstKey, name: &str) {
+		self.insts[key].name.0 = SmolStr::from(name);
+	}
 }
 
 impl fmt::Display for Function {
@@ -142,7 +176,7 @@ pub struct BlockBuilder<'f> {
 }
 
 impl BlockBuilder<'_> {
-	pub fn add_inst(&mut self, name: &str, data: InstData) -> InstKey {
+	pub fn add_named_inst(&mut self, name: &str, data: InstData) -> InstKey {
 		let successors = data.get_successors();
 		let key = self.function.new_inst(name, data);
 		let block = &mut self.function.blocks[self.id];
@@ -155,14 +189,21 @@ impl BlockBuilder<'_> {
 		key
 	}
 
-	pub fn const_int(&mut self, name: &str, value: i64) -> InstKey {
-		self.add_inst(name, InstData::ConstInt(value))
-	}
-	pub fn const_float(&mut self, name: &str, value: f64) -> InstKey {
-		self.add_inst(name, InstData::ConstFloat(value))
+	pub fn add_inst(&mut self, data: InstData) -> InstKey {
+		self.add_named_inst("", data)
 	}
 
-	pub fn jump(&mut self, name: &str, to: BasicBlockKey) -> InstKey {
-		self.add_inst(name, InstData::Jump(to))
+	pub fn const_unit(&mut self) -> InstKey {
+		self.add_inst(InstData::ConstUnit)
+	}
+	pub fn const_int(&mut self, value: i64) -> InstKey {
+		self.add_inst(InstData::ConstInt(value))
+	}
+	pub fn const_float(&mut self, value: f64) -> InstKey {
+		self.add_inst(InstData::ConstFloat(value))
+	}
+
+	pub fn jump(&mut self, to: BasicBlockKey) -> InstKey {
+		self.add_inst(InstData::Jump(to))
 	}
 }
