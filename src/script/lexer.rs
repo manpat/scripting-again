@@ -28,7 +28,21 @@ pub enum TokenKind {
 	Asterisk,
 	Minus,
 	Plus,
+
+	PercentAssign,
+	SlashAssign,
+	AsteriskAssign,
+	MinusAssign,
+	PlusAssign,
+
+	Assign,
+
+	Lesser,
+	Greater,
+	LesserEqual,
+	GreaterEqual,
 	Equal,
+	NotEqual,
 
 	Word(String),
 	LiteralString(String),
@@ -38,6 +52,12 @@ pub enum TokenKind {
 
 	Event,
 	Fn,
+
+	Let,
+	If,
+	Loop,
+	While,
+	For,
 }
 
 impl TokenKind {
@@ -81,35 +101,51 @@ pub fn parse(error_ctx: &ErrorContext<'_>, text: &str) -> anyhow::Result<TokenTr
 	parser.consume_whitespace();
 
 	while !parser.is_eof() && !parser.error_ctx.has_errors() {
-		let token = match parser.peek() {
-			b'(' => Token { kind: TokenKind::LeftParen, span: parser.consume(1) },
-			b')' => Token { kind: TokenKind::RightParen, span: parser.consume(1) },
-			b'{' => Token { kind: TokenKind::LeftBrace, span: parser.consume(1) },
-			b'}' => Token { kind: TokenKind::RightBrace, span: parser.consume(1) },
-			b'[' => Token { kind: TokenKind::LeftSquare, span: parser.consume(1) },
-			b']' => Token { kind: TokenKind::RightSquare, span: parser.consume(1) },
-			b';' => Token { kind: TokenKind::Semicolon, span: parser.consume(1) },
-			b':' => Token { kind: TokenKind::Colon, span: parser.consume(1) },
-			b',' => Token { kind: TokenKind::Comma, span: parser.consume(1) },
-			b'.' => Token { kind: TokenKind::Dot, span: parser.consume(1) },
+		let token = match parser.text {
+			[b'(', ..] => Token { kind: TokenKind::LeftParen, span: parser.consume(1) },
+			[b')', ..] => Token { kind: TokenKind::RightParen, span: parser.consume(1) },
+			[b'{', ..] => Token { kind: TokenKind::LeftBrace, span: parser.consume(1) },
+			[b'}', ..] => Token { kind: TokenKind::RightBrace, span: parser.consume(1) },
+			[b'[', ..] => Token { kind: TokenKind::LeftSquare, span: parser.consume(1) },
+			[b']', ..] => Token { kind: TokenKind::RightSquare, span: parser.consume(1) },
+			[b';', ..] => Token { kind: TokenKind::Semicolon, span: parser.consume(1) },
+			[b':', ..] => Token { kind: TokenKind::Colon, span: parser.consume(1) },
+			[b',', ..] => Token { kind: TokenKind::Comma, span: parser.consume(1) },
+			[b'.', ..] => Token { kind: TokenKind::Dot, span: parser.consume(1) },
 
-			b'!' => Token { kind: TokenKind::Bang, span: parser.consume(1) },
-			b'%' => Token { kind: TokenKind::Percent, span: parser.consume(1) },
-			b'/' => Token { kind: TokenKind::Slash, span: parser.consume(1) },
-			b'*' => Token { kind: TokenKind::Asterisk, span: parser.consume(1) },
-			b'-' => Token { kind: TokenKind::Minus, span: parser.consume(1) },
-			b'+' => Token { kind: TokenKind::Plus, span: parser.consume(1) },
-			b'=' => Token { kind: TokenKind::Equal, span: parser.consume(1) },
+			[b'%', b'=', ..] => Token { kind: TokenKind::PercentAssign, span: parser.consume(2) },
+			[b'/', b'=', ..] => Token { kind: TokenKind::SlashAssign, span: parser.consume(2) },
+			[b'*', b'=', ..] => Token { kind: TokenKind::AsteriskAssign, span: parser.consume(2) },
+			[b'-', b'=', ..] => Token { kind: TokenKind::MinusAssign, span: parser.consume(2) },
+			[b'+', b'=', ..] => Token { kind: TokenKind::PlusAssign, span: parser.consume(2) },
 
-			b'"' => parser.parse_string(),
-			c if c.is_ascii_digit() => parser.parse_number(),
-			c if c.is_ascii_alphabetic() => parser.parse_word(),
+			[b'=', b'=', ..] => Token { kind: TokenKind::Equal, span: parser.consume(2) },
+			[b'!', b'=', ..] => Token { kind: TokenKind::NotEqual, span: parser.consume(2) },
+			[b'<', b'=', ..] => Token { kind: TokenKind::LesserEqual, span: parser.consume(2) },
+			[b'>', b'=', ..] => Token { kind: TokenKind::GreaterEqual, span: parser.consume(2) },
 
-			c => {
+			[b'<', ..] => Token { kind: TokenKind::Lesser, span: parser.consume(1) },
+			[b'>', ..] => Token { kind: TokenKind::Greater, span: parser.consume(1) },
+
+			[b'!', ..] => Token { kind: TokenKind::Bang, span: parser.consume(1) },
+			[b'%', ..] => Token { kind: TokenKind::Percent, span: parser.consume(1) },
+			[b'/', ..] => Token { kind: TokenKind::Slash, span: parser.consume(1) },
+			[b'*', ..] => Token { kind: TokenKind::Asterisk, span: parser.consume(1) },
+			[b'-', ..] => Token { kind: TokenKind::Minus, span: parser.consume(1) },
+			[b'+', ..] => Token { kind: TokenKind::Plus, span: parser.consume(1) },
+			[b'=', ..] => Token { kind: TokenKind::Assign, span: parser.consume(1) },
+
+			[b'"', ..] => parser.parse_string(),
+			[c, ..] if c.is_ascii_digit() => parser.parse_number(),
+			[c, ..] if c.is_ascii_alphabetic() => parser.parse_word(),
+
+			[c, ..] => {
 				parser.consume(1);
-				parser.error_ctx.unexpected_character(parser.span_offset, c as char);
+				parser.error_ctx.unexpected_character(parser.span_offset, *c as char);
 				Token::error(parser.span_offset)
 			}
+
+			[] => unreachable!(),
 		};
 
 		tokens.push(token);
@@ -332,6 +368,12 @@ impl<'s, 'e> Lexer<'s, 'e> {
 
 			b"true" => TokenKind::LiteralBool(true),
 			b"false" => TokenKind::LiteralBool(false),
+
+			b"let" => TokenKind::Let,
+			b"if" => TokenKind::If,
+			b"loop" => TokenKind::Loop,
+			b"while" => TokenKind::While,
+			b"for" => TokenKind::For,
 
 			text => {
 				let text = String::from_utf8(text.to_vec()).unwrap();

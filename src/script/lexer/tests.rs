@@ -60,18 +60,48 @@ fn basic() {
 	assert_lexes!(".", Ok(TokenKind::Dot));
 
 	assert_lexes!("!", Ok(TokenKind::Bang));
+	assert_lexes!("=", Ok(TokenKind::Assign));
+}
+
+#[test]
+fn compare() {
+	assert_lexes!("<", Ok(TokenKind::Lesser));
+	assert_lexes!(">", Ok(TokenKind::Greater));
+	assert_lexes!("<=", Ok(TokenKind::LesserEqual));
+	assert_lexes!(">=", Ok(TokenKind::GreaterEqual));
+
+	assert_lexes!("==", Ok(TokenKind::Equal));
+	assert_lexes!("!=", Ok(TokenKind::NotEqual));
+}
+
+#[test]
+fn arithmetic() {
 	assert_lexes!("%", Ok(TokenKind::Percent));
 	assert_lexes!("/", Ok(TokenKind::Slash));
 	assert_lexes!("*", Ok(TokenKind::Asterisk));
 	assert_lexes!("-", Ok(TokenKind::Minus));
 	assert_lexes!("+", Ok(TokenKind::Plus));
-	assert_lexes!("=", Ok(TokenKind::Equal));
+}
+
+#[test]
+fn arithmetic_assign() {
+	assert_lexes!("%=", Ok(TokenKind::PercentAssign));
+	assert_lexes!("/=", Ok(TokenKind::SlashAssign));
+	assert_lexes!("*=", Ok(TokenKind::AsteriskAssign));
+	assert_lexes!("-=", Ok(TokenKind::MinusAssign));
+	assert_lexes!("+=", Ok(TokenKind::PlusAssign));
 }
 
 #[test]
 fn words() {
 	assert_lexes!("event", Ok(TokenKind::Event));
 	assert_lexes!("fn", Ok(TokenKind::Fn));
+	assert_lexes!("let", Ok(TokenKind::Let));
+	assert_lexes!("if", Ok(TokenKind::If));
+	assert_lexes!("loop", Ok(TokenKind::Loop));
+	assert_lexes!("while", Ok(TokenKind::While));
+	assert_lexes!("for", Ok(TokenKind::For));
+
 	assert_lexes!("true", Ok(TokenKind::LiteralBool(true)));
 	assert_lexes!("false", Ok(TokenKind::LiteralBool(false)));
 	assert_lexes!("fun", Ok(TokenKind::Word("fun".into())));

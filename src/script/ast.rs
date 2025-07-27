@@ -85,6 +85,11 @@ pub enum AstExpression {
 	},
 
 	Call(AstCall),
+
+	Let {
+		name: SpannedString,
+		value: Box<AstExpression>,
+	},
 }
 
 impl AstExpression {
@@ -109,6 +114,8 @@ impl AstExpression {
 			BinaryOp{left, right, ..} => Span::join(left.span(), right.span()),
 			Call(AstCall{name, arguments}) if arguments.is_empty() => name.span(),
 			Call(AstCall{name, arguments}) => Span::join(name.span(), arguments.last().unwrap().span()),
+
+			Let{..} => unimplemented!(),
 		}
 	}
 }

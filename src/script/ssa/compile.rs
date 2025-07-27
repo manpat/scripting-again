@@ -74,6 +74,9 @@ fn ast_expr_has_sideeffects(expr: &ast::AstExpression) -> bool {
 		Name(..) | Lookup{..} => false,
 		LiteralString(..) | LiteralInt(..) | LiteralFloat(..) | LiteralBool(..) => false,
 
+		// Declaring a binding counts as a sideeffect
+		Let{..} => true,
+
 		UnaryOp {argument, ..} => ast_expr_has_sideeffects(&argument),
 		BinaryOp {left, right, ..} => ast_expr_has_sideeffects(left) || ast_expr_has_sideeffects(right),
 
