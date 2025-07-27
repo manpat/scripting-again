@@ -213,4 +213,14 @@ impl BlockBuilder<'_> {
 	pub fn jump(&mut self, to: BasicBlockKey) -> InstKey {
 		self.add_inst(InstData::Jump(to))
 	}
+
+	pub fn jump_and_switch(&mut self, to: BasicBlockKey) -> InstKey {
+		let inst = self.add_inst(InstData::Jump(to));
+		self.switch_to_block(to);
+		inst
+	}
+
+	pub fn switch_to_block(&mut self, to: BasicBlockKey) {
+		self.id = to;
+	}
 }

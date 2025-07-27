@@ -1,11 +1,8 @@
 
 fn foobar() {
-	let foo = "wee";
-	let bar = {
-		let foo = 123;
-		let foo = foo + 5;
-		foo()
-	};
+	let foo = {};
 
-	foo + bar
+	while 1 + 2 {
+		foo();
+	}
 }

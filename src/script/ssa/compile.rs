@@ -42,9 +42,17 @@ struct Scope {
 	variables: HashMap<String, ScopeVariable>,
 }
 
+struct LoopContext {
+	condition_block: ssa::BasicBlockKey,
+	body_block: ssa::BasicBlockKey,
+	exit_block: ssa::BasicBlockKey,
+}
+
 #[derive(Default)]
 struct FnCompileCtx {
 	scope_stack: Vec<Scope>,
+
+	loop_stack: Vec<LoopContext>,
 }
 
 impl FnCompileCtx {
@@ -186,6 +194,39 @@ fn compile_ast_expr(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuil
 			compile_ctx.insert_variable(&name.text, value);
 
 			// TODO(pat.m): find a way not to need this
+			builder.const_unit()
+		}
+
+		E::While{condition, body} => {
+			let condition_block = builder.function.new_block();
+			let body_block = builder.function.new_block();
+			let exit_block = builder.function.new_block();
+
+			compile_ctx.push_scope();
+			compile_ctx.loop_stack.push(LoopContext { condition_block, body_block, exit_block });
+
+			// Condition
+			builder.jump_and_switch(condition_block);
+
+			let condition = compile_ast_expr(compile_ctx, builder, condition)?;
+			builder.add_named_inst("while", ssa::InstData::JumpIf {
+				condition,
+				then_block: body_block,
+				else_block: exit_block,
+			});
+
+			// Body
+			builder.switch_to_block(body_block);
+			compile_ast_block(compile_ctx, builder, body)?;
+			builder.jump(condition_block);
+
+			// Exit
+			builder.switch_to_block(exit_block);
+
+			compile_ctx.loop_stack.pop();
+			compile_ctx.pop_scope();
+
+			// TODO(pat.m): would be nice to not need this
 			builder.const_unit()
 		}
 
