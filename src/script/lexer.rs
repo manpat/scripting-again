@@ -55,6 +55,7 @@ pub enum TokenKind {
 
 	Let,
 	If,
+	Else,
 	Loop,
 	While,
 	For,
@@ -371,6 +372,7 @@ impl<'s, 'e> Lexer<'s, 'e> {
 
 			b"let" => TokenKind::Let,
 			b"if" => TokenKind::If,
+			b"else" => TokenKind::Else,
 			b"loop" => TokenKind::Loop,
 			b"while" => TokenKind::While,
 			b"for" => TokenKind::For,

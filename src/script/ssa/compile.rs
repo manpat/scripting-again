@@ -65,25 +65,38 @@ fn compile_function(mut compile_ctx: FnCompileCtx, body: &ast::AstBlock) -> anyh
 }
 
 
-fn ast_expr_has_sideeffects(expr: &ast::AstExpression) -> bool {
+fn ast_expr_is_safe_to_omit(expr: &ast::AstExpression) -> bool {
 	use ast::AstExpression::*;
 
 	match expr {
-		Error => false,
+		Error => true,
 
-		Name(..) | Lookup{..} => false,
-		LiteralString(..) | LiteralInt(..) | LiteralFloat(..) | LiteralBool(..) => false,
+		Name(..) => true,
+		Lookup{parent, ..} => ast_expr_is_safe_to_omit(parent),
+		LiteralString(..) | LiteralInt(..) | LiteralFloat(..) | LiteralBool(..) => true,
 
-		// Declaring a binding counts as a sideeffect
-		Let{..} => true,
-
-		UnaryOp {argument, ..} => ast_expr_has_sideeffects(&argument),
-		BinaryOp {left, right, ..} => ast_expr_has_sideeffects(left) || ast_expr_has_sideeffects(right),
+		UnaryOp {argument, ..} => ast_expr_is_safe_to_omit(&argument),
+		BinaryOp {left, right, ..} => ast_expr_is_safe_to_omit(left) || ast_expr_is_safe_to_omit(right),
+		AssignOp{..} => false,
 
 		// TODO(pat.m): pure function calls would be nice
-		Call{..} => true,
-		Block(block) => block.body.iter().any(|arg| ast_expr_has_sideeffects(arg)),
+		Call{..} => false,
+		Block(block) => ast_block_is_safe_to_omit(block),
+
+		// Declaring a binding counts as a sideeffect
+		Let{..} => false,
+		If{condition, then_block, else_block} => ast_expr_is_safe_to_omit(&condition)
+			&& ast_block_is_safe_to_omit(then_block)
+			&& else_block.as_ref().map_or(true, ast_block_is_safe_to_omit),
+
+		// Loops are a sideeffect (for now)
+		While{..} => false,
+		Loop{..} => false,
 	}
+}
+
+fn ast_block_is_safe_to_omit(block: &ast::AstBlock) -> bool {
+	block.body.iter().all(|arg| ast_expr_is_safe_to_omit(arg))
 }
 
 
@@ -104,6 +117,7 @@ fn compile_ast_expr(builder: &mut ssa::BlockBuilder, expr: &ast::AstExpression) 
 			let argument = compile_ast_expr(builder, &argument)?;
 			match kind {
 				UnaryOpKind::Not => builder.add_inst(ssa::InstData::Not(argument)),
+				UnaryOpKind::Negate => builder.add_inst(ssa::InstData::Negate(argument)),
 			}
 		}
 
@@ -112,10 +126,17 @@ fn compile_ast_expr(builder: &mut ssa::BlockBuilder, expr: &ast::AstExpression) 
 			let right = compile_ast_expr(builder, &right)?;
 			match kind {
 				BinaryOpKind::Add => builder.add_inst(ssa::InstData::Add(left, right)),
-				BinaryOpKind::Subtract => builder.add_inst(ssa::InstData::Add(left, right)),
-				BinaryOpKind::Multiply => builder.add_inst(ssa::InstData::Add(left, right)),
-				BinaryOpKind::Divide => builder.add_inst(ssa::InstData::Add(left, right)),
-				BinaryOpKind::Remainder => builder.add_inst(ssa::InstData::Add(left, right)),
+				BinaryOpKind::Subtract => builder.add_inst(ssa::InstData::Sub(left, right)),
+				BinaryOpKind::Multiply => builder.add_inst(ssa::InstData::Mul(left, right)),
+				BinaryOpKind::Divide => builder.add_inst(ssa::InstData::Div(left, right)),
+				BinaryOpKind::Remainder => builder.add_inst(ssa::InstData::Rem(left, right)),
+
+				BinaryOpKind::Lesser => builder.add_inst(ssa::InstData::CmpLesser(left, right)),
+				BinaryOpKind::Greater => builder.add_inst(ssa::InstData::CmpGreater(left, right)),
+				BinaryOpKind::LesserEqual => builder.add_inst(ssa::InstData::CmpLesserEqual(left, right)),
+				BinaryOpKind::GreaterEqual => builder.add_inst(ssa::InstData::CmpGreaterEqual(left, right)),
+				BinaryOpKind::Equal => builder.add_inst(ssa::InstData::CmpEqual(left, right)),
+				BinaryOpKind::NotEqual => builder.add_inst(ssa::InstData::CmpNotEqual(left, right)),
 			}
 		}
 
@@ -133,7 +154,7 @@ fn compile_ast_block(builder: &mut ssa::BlockBuilder, block: &ast::AstBlock) -> 
 		}
 
 		// Expressions without side effects aren't observable unless they are tail expressions, so omit them.
-		if !ast_expr_has_sideeffects(expression) {
+		if ast_expr_is_safe_to_omit(expression) {
 			continue
 		}
 

@@ -51,6 +51,13 @@ pub enum InstData {
 	Mul(InstKey, InstKey),
 	Div(InstKey, InstKey),
 	Rem(InstKey, InstKey),
+
+	CmpEqual(InstKey, InstKey),
+	CmpNotEqual(InstKey, InstKey),
+	CmpLesser(InstKey, InstKey),
+	CmpGreater(InstKey, InstKey),
+	CmpLesserEqual(InstKey, InstKey),
+	CmpGreaterEqual(InstKey, InstKey),
 }
 
 impl InstData {

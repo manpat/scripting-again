@@ -106,5 +106,13 @@ fn format_inst(f: &mut fmt::Formatter, function: &Function, inst_key: InstKey) -
 		InstData::Mul(l, r) => write!(f, "{} * {}", function.get_inst_name(l), function.get_inst_name(r)),
 		InstData::Div(l, r) => write!(f, "{} / {}", function.get_inst_name(l), function.get_inst_name(r)),
 		InstData::Rem(l, r) => write!(f, "{} % {}", function.get_inst_name(l), function.get_inst_name(r)),
+
+		InstData::CmpEqual(l, r) => write!(f, "{} == {}", function.get_inst_name(l), function.get_inst_name(r)),
+		InstData::CmpNotEqual(l, r) => write!(f, "{} != {}", function.get_inst_name(l), function.get_inst_name(r)),
+
+		InstData::CmpLesser(l, r) => write!(f, "{} < {}", function.get_inst_name(l), function.get_inst_name(r)),
+		InstData::CmpGreater(l, r) => write!(f, "{} > {}", function.get_inst_name(l), function.get_inst_name(r)),
+		InstData::CmpLesserEqual(l, r) => write!(f, "{} <= {}", function.get_inst_name(l), function.get_inst_name(r)),
+		InstData::CmpGreaterEqual(l, r) => write!(f, "{} >= {}", function.get_inst_name(l), function.get_inst_name(r)),
 	}
 }

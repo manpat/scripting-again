@@ -1,4 +1,4 @@
 
 fn foobar() {
-	"bar"("foo", 123, true);
+	// if true {} else { 1.0 }
 }

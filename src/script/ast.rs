@@ -44,6 +44,7 @@ pub struct AstCall {
 #[derive(Debug)]
 pub enum UnaryOpKind {
 	Not,
+	Negate,
 }
 
 #[derive(Debug)]
@@ -53,6 +54,23 @@ pub enum BinaryOpKind {
 	Multiply,
 	Divide,
 	Remainder,
+
+	Lesser,
+	Greater,
+	LesserEqual,
+	GreaterEqual,
+	Equal,
+	NotEqual,
+}
+
+#[derive(Debug)]
+pub enum AssignOpKind {
+	Assign,
+	AddAssign,
+	SubtractAssign,
+	MultiplyAssign,
+	DivideAssign,
+	RemainderAssign,
 }
 
 
@@ -84,12 +102,33 @@ pub enum AstExpression {
 		right: Box<AstExpression>,
 	},
 
+	AssignOp {
+		kind: AssignOpKind,
+		left: Box<AstExpression>,
+		right: Box<AstExpression>,
+	},
+
 	Call(AstCall),
 
 	Let {
 		name: SpannedString,
 		value: Box<AstExpression>,
 	},
+
+	If {
+		condition: Box<AstExpression>,
+		then_block: AstBlock,
+		else_block: Option<AstBlock>,
+	},
+
+	Loop(AstBlock),
+
+	While {
+		condition: Box<AstExpression>,
+		body: AstBlock,
+	}
+
+	// TODO(pat.m): For
 }
 
 impl AstExpression {
@@ -115,7 +154,7 @@ impl AstExpression {
 			Call(AstCall{name, arguments}) if arguments.is_empty() => name.span(),
 			Call(AstCall{name, arguments}) => Span::join(name.span(), arguments.last().unwrap().span()),
 
-			Let{..} => unimplemented!(),
+			_ => unimplemented!(),
 		}
 	}
 }

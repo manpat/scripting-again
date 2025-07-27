@@ -1,13 +1,13 @@
-mod procedure;
+// mod procedure;
 
 use crate::script::{*};
 
-use std::collections::HashMap;
+// use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Module {
-	functions: HashMap<String, procedure::Procedure>,
-	events: HashMap<String, procedure::Procedure>,
+	// functions: HashMap<String, procedure::Procedure>,
+	// events: HashMap<String, procedure::Procedure>,
 }
 
 impl Module {
@@ -35,8 +35,8 @@ impl Module {
 			println!("fn {name}() {func}");
 		}
 
-		let functions = HashMap::new();
-		let events = HashMap::new();
+		// let functions = HashMap::new();
+		// let events = HashMap::new();
 
 		// for item in syntax_tree.items {
 		// 	match item {
@@ -69,8 +69,8 @@ impl Module {
 		// }
 
 		Ok(Module {
-			functions,
-			events
+			// functions,
+			// events
 		})
 	}
 }

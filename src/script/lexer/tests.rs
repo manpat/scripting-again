@@ -98,6 +98,7 @@ fn words() {
 	assert_lexes!("fn", Ok(TokenKind::Fn));
 	assert_lexes!("let", Ok(TokenKind::Let));
 	assert_lexes!("if", Ok(TokenKind::If));
+	assert_lexes!("else", Ok(TokenKind::Else));
 	assert_lexes!("loop", Ok(TokenKind::Loop));
 	assert_lexes!("while", Ok(TokenKind::While));
 	assert_lexes!("for", Ok(TokenKind::For));
