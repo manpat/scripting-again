@@ -1,8 +1,8 @@
 
 fn foobar() {
-	let foo = {};
+	let foo = 4;
 
-	while 1 + 2 {
-		foo();
-	}
+	// foo += 5;
+
+	foo <= 5
 }

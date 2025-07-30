@@ -59,6 +59,9 @@ pub enum TokenKind {
 	Loop,
 	While,
 	For,
+
+	Continue,
+	Break,
 }
 
 impl TokenKind {
@@ -376,6 +379,9 @@ impl<'s, 'e> Lexer<'s, 'e> {
 			b"loop" => TokenKind::Loop,
 			b"while" => TokenKind::While,
 			b"for" => TokenKind::For,
+
+			b"break" => TokenKind::Break,
+			b"continue" => TokenKind::Continue,
 
 			text => {
 				let text = String::from_utf8(text.to_vec()).unwrap();

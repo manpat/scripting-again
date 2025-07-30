@@ -103,6 +103,9 @@ fn words() {
 	assert_lexes!("while", Ok(TokenKind::While));
 	assert_lexes!("for", Ok(TokenKind::For));
 
+	assert_lexes!("break", Ok(TokenKind::Break));
+	assert_lexes!("continue", Ok(TokenKind::Continue));
+
 	assert_lexes!("true", Ok(TokenKind::LiteralBool(true)));
 	assert_lexes!("false", Ok(TokenKind::LiteralBool(false)));
 	assert_lexes!("fun", Ok(TokenKind::Word("fun".into())));
