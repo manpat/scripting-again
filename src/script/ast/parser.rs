@@ -213,6 +213,7 @@ impl<'e, 't> Parser<'e, 't> {
 			};
 		}
 
+		// TODO(pat.m): should be expression
 		if self.accept(&TokenKind::If) {
 			let condition = Box::new(self.parse_expression());
 
@@ -258,49 +259,18 @@ impl<'e, 't> Parser<'e, 't> {
 	fn parse_expression_assignment(&mut self) -> AstExpression {
 		let left = self.parse_expression_logical_or();
 
-		if self.accept(&TokenKind::Assign) {
+		if let Some(op_kind) = self.map_accept(|kind| match kind {
+			TokenKind::Assign => Some(AssignOpKind::Assign),
+			TokenKind::PlusAssign => Some(AssignOpKind::AddAssign),
+			TokenKind::MinusAssign => Some(AssignOpKind::SubtractAssign),
+			TokenKind::AsteriskAssign => Some(AssignOpKind::MultiplyAssign),
+			TokenKind::SlashAssign => Some(AssignOpKind::DivideAssign),
+			TokenKind::PercentAssign => Some(AssignOpKind::RemainderAssign),
+			_ => None,
+		})
+		{
 			return AstExpression::AssignOp {
-				kind: AssignOpKind::Assign,
-				left: Box::new(left),
-				right: Box::new(self.parse_expression_logical_or()),
-			}
-		}
-
-		if self.accept(&TokenKind::PlusAssign) {
-			return AstExpression::AssignOp {
-				kind: AssignOpKind::AddAssign,
-				left: Box::new(left),
-				right: Box::new(self.parse_expression_logical_or()),
-			}
-		}
-
-		if self.accept(&TokenKind::MinusAssign) {
-			return AstExpression::AssignOp {
-				kind: AssignOpKind::SubtractAssign,
-				left: Box::new(left),
-				right: Box::new(self.parse_expression_logical_or()),
-			}
-		}
-
-		if self.accept(&TokenKind::AsteriskAssign) {
-			return AstExpression::AssignOp {
-				kind: AssignOpKind::MultiplyAssign,
-				left: Box::new(left),
-				right: Box::new(self.parse_expression_logical_or()),
-			}
-		}
-
-		if self.accept(&TokenKind::SlashAssign) {
-			return AstExpression::AssignOp {
-				kind: AssignOpKind::DivideAssign,
-				left: Box::new(left),
-				right: Box::new(self.parse_expression_logical_or()),
-			}
-		}
-
-		if self.accept(&TokenKind::PercentAssign) {
-			return AstExpression::AssignOp {
-				kind: AssignOpKind::RemainderAssign,
+				kind: op_kind,
 				left: Box::new(left),
 				right: Box::new(self.parse_expression_logical_or()),
 			}
@@ -321,7 +291,7 @@ impl<'e, 't> Parser<'e, 't> {
 	fn parse_expression_comparison(&mut self) -> AstExpression {
 		let left = self.parse_expression_binary_add();
 
-		let Some(op_kind) = self.map_accept(|kind| match kind {
+		if let Some(op_kind) = self.map_accept(|kind| match kind {
 			TokenKind::Equal => Some(BinaryOpKind::Equal),
 			TokenKind::NotEqual => Some(BinaryOpKind::NotEqual),
 			TokenKind::Lesser => Some(BinaryOpKind::Lesser),
@@ -330,15 +300,15 @@ impl<'e, 't> Parser<'e, 't> {
 			TokenKind::GreaterEqual => Some(BinaryOpKind::GreaterEqual),
 			_ => None,
 		})
-		else {
-			return left;
+		{
+			return AstExpression::BinaryOp {
+				kind: op_kind,
+				left: Box::new(left),
+				right: Box::new(self.parse_expression_binary_add()),
+			}
 		};
 
-		return AstExpression::BinaryOp {
-			kind: op_kind,
-			left: Box::new(left),
-			right: Box::new(self.parse_expression_binary_add()),
-		}
+		left
 	}
 
 	fn parse_expression_binary_add(&mut self) -> AstExpression {
