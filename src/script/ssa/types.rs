@@ -30,7 +30,7 @@ impl PartialEq for LiteralFloat {
 	}
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum InstData {
 	ConstUnit,
 	ConstInt(i64),
@@ -84,6 +84,23 @@ impl InstData {
 			InstData::Jump(..) | InstData::JumpIf{..} | InstData::Return{..} => true,
 			_ => false,
 		}
+	}
+
+	pub fn can_be_memoized(&self) -> bool {
+		use InstData::*;
+
+		match *self {
+			Jump(..) | JumpIf{..} | Return{..} | Call{..} => false,
+			_ => true,
+		}
+	}
+
+	pub fn hash(&self) -> u64 {
+		use std::hash::*;
+
+		let mut hasher = DefaultHasher::new();
+		Hash::hash(self, &mut hasher);
+		hasher.finish()
 	}
 
 	pub fn get_successors(&self) -> SmallVec<[BasicBlockKey; 2]> {

@@ -57,8 +57,8 @@ struct LoopContext {
 #[derive(Default)]
 struct FnCompileCtx {
 	scope_stack: Vec<Scope>,
-
 	variables: SlotMap<VariableKey, Variable>,
+	insts_by_hash: HashMap<u64, ssa::InstKey>,
 
 	loop_stack: Vec<LoopContext>,
 }
@@ -100,6 +100,30 @@ impl FnCompileCtx {
 
 		// TODO(pat.m): search predecessors and insert phi if more than one predecessor
 		unimplemented!()
+	}
+
+	fn memoize_inst(&mut self, builder: &mut ssa::BlockBuilder, inst_data: ssa::InstData) -> ssa::InstKey {
+		if !inst_data.can_be_memoized() {
+			return builder.add_inst(inst_data);
+		}
+
+		let hash = inst_data.hash();
+		self.insts_by_hash.entry(hash)
+			.or_insert_with(move || builder.add_inst(inst_data))
+			.clone()
+	}
+
+	fn memoize_named_inst(&mut self, builder: &mut ssa::BlockBuilder, name: impl AsRef<str>, inst_data: ssa::InstData) -> ssa::InstKey {
+		let name = name.as_ref();
+
+		if !inst_data.can_be_memoized() {
+			return builder.add_named_inst(name, inst_data);
+		}
+
+		let hash = inst_data.hash();
+		self.insts_by_hash.entry(hash)
+			.or_insert_with(move || builder.add_named_inst(name, inst_data))
+			.clone()
 	}
 
 	fn push_scope(&mut self) {
@@ -179,16 +203,16 @@ fn compile_ast_expr(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuil
 		},
 		E::Call(call) => compile_ast_call(compile_ctx, builder, call)?,
 
-		E::LiteralInt(value, ..) => builder.const_int(*value),
-		E::LiteralFloat(value, ..) => builder.const_float(*value),
-		E::LiteralBool(value, ..) => builder.add_inst(ssa::InstData::ConstBool(*value)),
-		E::LiteralString(value, ..) => builder.add_inst(ssa::InstData::ConstString(value.text.clone())),
+		E::LiteralInt(value, ..) => compile_ctx.memoize_inst(builder, ssa::InstData::ConstInt(*value)),
+		E::LiteralFloat(value, ..) => compile_ctx.memoize_inst(builder, ssa::InstData::ConstFloat(ssa::LiteralFloat(*value))),
+		E::LiteralBool(value, ..) => compile_ctx.memoize_inst(builder, ssa::InstData::ConstBool(*value)),
+		E::LiteralString(value, ..) => compile_ctx.memoize_inst(builder, ssa::InstData::ConstString(value.text.clone())),
 
 		E::UnaryOp{kind, argument} => {
 			let argument = compile_ast_expr(compile_ctx, builder, &argument)?;
 			match kind {
-				UnaryOpKind::Not => builder.add_inst(ssa::InstData::Not(argument)),
-				UnaryOpKind::Negate => builder.add_inst(ssa::InstData::Negate(argument)),
+				UnaryOpKind::Not => compile_ctx.memoize_inst(builder, ssa::InstData::Not(argument)),
+				UnaryOpKind::Negate => compile_ctx.memoize_inst(builder, ssa::InstData::Negate(argument)),
 			}
 		}
 
@@ -196,18 +220,18 @@ fn compile_ast_expr(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuil
 			let left = compile_ast_expr(compile_ctx, builder, &left)?;
 			let right = compile_ast_expr(compile_ctx, builder, &right)?;
 			match kind {
-				BinaryOpKind::Add => builder.add_inst(ssa::InstData::Add(left, right)),
-				BinaryOpKind::Subtract => builder.add_inst(ssa::InstData::Sub(left, right)),
-				BinaryOpKind::Multiply => builder.add_inst(ssa::InstData::Mul(left, right)),
-				BinaryOpKind::Divide => builder.add_inst(ssa::InstData::Div(left, right)),
-				BinaryOpKind::Remainder => builder.add_inst(ssa::InstData::Rem(left, right)),
+				BinaryOpKind::Add => compile_ctx.memoize_inst(builder, ssa::InstData::Add(left, right)),
+				BinaryOpKind::Subtract => compile_ctx.memoize_inst(builder, ssa::InstData::Sub(left, right)),
+				BinaryOpKind::Multiply => compile_ctx.memoize_inst(builder, ssa::InstData::Mul(left, right)),
+				BinaryOpKind::Divide => compile_ctx.memoize_inst(builder, ssa::InstData::Div(left, right)),
+				BinaryOpKind::Remainder => compile_ctx.memoize_inst(builder, ssa::InstData::Rem(left, right)),
 
-				BinaryOpKind::Lesser => builder.add_inst(ssa::InstData::CmpLesser(left, right)),
-				BinaryOpKind::Greater => builder.add_inst(ssa::InstData::CmpGreater(left, right)),
-				BinaryOpKind::LesserEqual => builder.add_inst(ssa::InstData::CmpLesserEqual(left, right)),
-				BinaryOpKind::GreaterEqual => builder.add_inst(ssa::InstData::CmpGreaterEqual(left, right)),
-				BinaryOpKind::Equal => builder.add_inst(ssa::InstData::CmpEqual(left, right)),
-				BinaryOpKind::NotEqual => builder.add_inst(ssa::InstData::CmpNotEqual(left, right)),
+				BinaryOpKind::Lesser => compile_ctx.memoize_inst(builder, ssa::InstData::CmpLesser(left, right)),
+				BinaryOpKind::Greater => compile_ctx.memoize_inst(builder, ssa::InstData::CmpGreater(left, right)),
+				BinaryOpKind::LesserEqual => compile_ctx.memoize_inst(builder, ssa::InstData::CmpLesserEqual(left, right)),
+				BinaryOpKind::GreaterEqual => compile_ctx.memoize_inst(builder, ssa::InstData::CmpGreaterEqual(left, right)),
+				BinaryOpKind::Equal => compile_ctx.memoize_inst(builder, ssa::InstData::CmpEqual(left, right)),
+				BinaryOpKind::NotEqual => compile_ctx.memoize_inst(builder, ssa::InstData::CmpNotEqual(left, right)),
 			}
 		}
 
@@ -218,20 +242,25 @@ fn compile_ast_expr(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuil
 			};
 
 			let variable_key = compile_ctx.lookup_variable(name);
-
-			// TODO(pat.m): don't do this for Assign
-			let prev_value = compile_ctx.read_variable(variable_key, builder);
 			let right_value = compile_ast_expr(compile_ctx, builder, &right)?;
 
-			let new_value = match kind {
-				ast::AssignOpKind::Assign => right_value,
-				ast::AssignOpKind::AddAssign => builder.add_named_inst(name, ssa::InstData::Add(prev_value, right_value)),
-				ast::AssignOpKind::SubtractAssign => builder.add_named_inst(name, ssa::InstData::Sub(prev_value, right_value)),
-				ast::AssignOpKind::MultiplyAssign => builder.add_named_inst(name, ssa::InstData::Mul(prev_value, right_value)),
-				ast::AssignOpKind::DivideAssign => builder.add_named_inst(name, ssa::InstData::Div(prev_value, right_value)),
-				ast::AssignOpKind::RemainderAssign => builder.add_named_inst(name, ssa::InstData::Rem(prev_value, right_value)),
+			if let ast::AssignOpKind::Assign = kind {
+				compile_ctx.write_variable(variable_key, right_value, builder.id);
+				return Ok(right_value);
+			}
+
+			let prev_value = compile_ctx.read_variable(variable_key, builder);
+
+			let inst_data = match kind {
+				ast::AssignOpKind::AddAssign => ssa::InstData::Add(prev_value, right_value),
+				ast::AssignOpKind::SubtractAssign => ssa::InstData::Sub(prev_value, right_value),
+				ast::AssignOpKind::MultiplyAssign => ssa::InstData::Mul(prev_value, right_value),
+				ast::AssignOpKind::DivideAssign => ssa::InstData::Div(prev_value, right_value),
+				ast::AssignOpKind::RemainderAssign => ssa::InstData::Rem(prev_value, right_value),
+				ast::AssignOpKind::Assign => unreachable!(),
 			};
 
+			let new_value = compile_ctx.memoize_named_inst(builder, name, inst_data);
 			compile_ctx.write_variable(variable_key, new_value, builder.id);
 
 			new_value
@@ -322,3 +351,6 @@ fn compile_ast_call(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuil
 		arguments,
 	}))
 }
+
+
+

@@ -5,7 +5,9 @@ fn foobar() {
 	let v1 = bar;
 	let v2 = v1;
 	let v3 = v2;
-	v1 = v2;
+
+	bar = foo + 2;
+	bar = foo + 2;
 
 	foo += bar;
 	bar /= 5;
