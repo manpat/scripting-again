@@ -12,11 +12,29 @@ slotmap::new_key_type! {
 }
 
 
+#[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
+pub struct LiteralFloat(pub f64);
+
+impl std::hash::Hash for LiteralFloat {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.0.to_bits().hash(state);
+	}
+}
+
+impl Eq for LiteralFloat {}
+
+impl PartialEq for LiteralFloat {
+	fn eq(&self, rhs: &Self) -> bool {
+		self.0.to_bits() == rhs.0.to_bits()
+	}
+}
+
 #[derive(Clone, Debug)]
 pub enum InstData {
 	ConstUnit,
 	ConstInt(i64),
-	ConstFloat(f64),
+	ConstFloat(LiteralFloat),
 	ConstBool(bool),
 	ConstString(String),
 
@@ -39,9 +57,9 @@ pub enum InstData {
 		arguments: SmallVec<[InstKey; 4]>,
 	},
 
-	// Phi {
-
-	// },
+	Phi {
+		arguments: SmallVec<[InstKey; 2]>,
+	},
 
 	Not(InstKey),
 	Negate(InstKey),
@@ -165,7 +183,10 @@ impl Function {
 	}
 
 	pub fn update_inst_name(&mut self, key: InstKey, name: &str) {
-		self.insts[key].name.0 = SmolStr::from(name);
+		let inst = &mut self.insts[key];
+		if inst.name.0.is_empty() {
+			inst.name.0 = SmolStr::from(name);
+		}
 	}
 }
 
@@ -207,7 +228,7 @@ impl BlockBuilder<'_> {
 		self.add_inst(InstData::ConstInt(value))
 	}
 	pub fn const_float(&mut self, value: f64) -> InstKey {
-		self.add_inst(InstData::ConstFloat(value))
+		self.add_inst(InstData::ConstFloat(LiteralFloat(value)))
 	}
 
 	pub fn jump(&mut self, to: BasicBlockKey) -> InstKey {

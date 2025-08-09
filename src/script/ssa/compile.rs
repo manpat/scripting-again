@@ -1,6 +1,12 @@
 use crate::script::{*};
 use std::collections::HashMap;
 
+use slotmap::{SlotMap, SparseSecondaryMap};
+
+slotmap::new_key_type! {
+	pub struct VariableKey;
+}
+
 
 #[derive(Debug)]
 pub struct CompiledResult {
@@ -33,13 +39,13 @@ pub fn compile(_error_ctx: &ErrorContext, ast: &ast::SyntaxTree) -> anyhow::Resu
 	})
 }
 
-struct ScopeVariable {
-	current_inst: ssa::InstKey,
+struct Variable {
+	current_inst: SparseSecondaryMap<ssa::BasicBlockKey, ssa::InstKey>,
 }
 
 #[derive(Default)]
 struct Scope {
-	variables: HashMap<String, ScopeVariable>,
+	variables: HashMap<String, VariableKey>,
 }
 
 struct LoopContext {
@@ -52,28 +58,48 @@ struct LoopContext {
 struct FnCompileCtx {
 	scope_stack: Vec<Scope>,
 
+	variables: SlotMap<VariableKey, Variable>,
+
 	loop_stack: Vec<LoopContext>,
 }
 
 impl FnCompileCtx {
-	fn insert_variable(&mut self, name: impl Into<String>, current_inst: ssa::InstKey) {
-		let scope = self.scope_stack.last_mut().unwrap();
-		scope.variables.insert(name.into(), ScopeVariable {
-			current_inst,
+	fn new_variable(&mut self, name: impl Into<String>) -> VariableKey {
+		let variable = self.variables.insert(Variable {
+			current_inst: SparseSecondaryMap::default()
 		});
+
+		let scope = self.scope_stack.last_mut().unwrap();
+		scope.variables.insert(name.into(), variable);
+
+		variable
 	}
 
-	fn find_variable_inst(&self, name: impl AsRef<str>) -> ssa::InstKey {
+	fn lookup_variable(&mut self, name: impl AsRef<str>) -> VariableKey {
 		let name = name.as_ref();
 
 		for scope in self.scope_stack.iter().rev() {
-			if let Some(variable) = scope.variables.get(name) {
-				return variable.current_inst;
+			if let Some(variable_key) = scope.variables.get(name) {
+				return *variable_key;
 			}
 		}
 
 		// TODO(pat.m): need to start thinking about spans
 		panic!("{name} not found in scope");
+	}
+
+	fn write_variable(&mut self, variable: VariableKey, current_inst: ssa::InstKey, block: ssa::BasicBlockKey) {
+		self.variables[variable].current_inst.insert(block, current_inst);
+	}
+
+	fn read_variable(&mut self, variable: VariableKey, builder: &mut ssa::BlockBuilder) -> ssa::InstKey {
+		let variable_insts = &mut self.variables[variable].current_inst;
+		if let Some(local_inst) = variable_insts.get(builder.id) {
+			return *local_inst
+		}
+
+		// TODO(pat.m): search predecessors and insert phi if more than one predecessor
+		unimplemented!()
 	}
 
 	fn push_scope(&mut self) {
@@ -185,15 +211,44 @@ fn compile_ast_expr(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuil
 			}
 		}
 
-		E::Name(name) => compile_ctx.find_variable_inst(&name.text),
+		E::AssignOp{kind, left, right} => {
+			let name = match &**left {
+				E::Name(s) => &s.text,
+				_ => unimplemented!(),
+			};
+
+			let variable_key = compile_ctx.lookup_variable(name);
+
+			// TODO(pat.m): don't do this for Assign
+			let prev_value = compile_ctx.read_variable(variable_key, builder);
+			let right_value = compile_ast_expr(compile_ctx, builder, &right)?;
+
+			let new_value = match kind {
+				ast::AssignOpKind::Assign => right_value,
+				ast::AssignOpKind::AddAssign => builder.add_named_inst(name, ssa::InstData::Add(prev_value, right_value)),
+				ast::AssignOpKind::SubtractAssign => builder.add_named_inst(name, ssa::InstData::Sub(prev_value, right_value)),
+				ast::AssignOpKind::MultiplyAssign => builder.add_named_inst(name, ssa::InstData::Mul(prev_value, right_value)),
+				ast::AssignOpKind::DivideAssign => builder.add_named_inst(name, ssa::InstData::Div(prev_value, right_value)),
+				ast::AssignOpKind::RemainderAssign => builder.add_named_inst(name, ssa::InstData::Rem(prev_value, right_value)),
+			};
+
+			compile_ctx.write_variable(variable_key, new_value, builder.id);
+
+			new_value
+		}
+
+		E::Name(name) => {
+			let variable_key = compile_ctx.lookup_variable(&name.text);
+			compile_ctx.read_variable(variable_key, builder)
+		}
 
 		E::Let{name, value} => {
 			let value = compile_ast_expr(compile_ctx, builder, &value)?;
 			builder.function.update_inst_name(value, &name.text);
-			compile_ctx.insert_variable(&name.text, value);
 
-			// TODO(pat.m): find a way not to need this
-			builder.const_unit()
+			let variable_key = compile_ctx.new_variable(&name.text);
+			compile_ctx.write_variable(variable_key, value, builder.id);
+			value
 		}
 
 		E::While{condition, body} => {

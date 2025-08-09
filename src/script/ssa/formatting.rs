@@ -74,7 +74,7 @@ fn format_inst(f: &mut fmt::Formatter, function: &Function, inst_key: InstKey) -
 	match inst.data {
 		InstData::ConstUnit => write!(f, "ConstUnit"),
 		InstData::ConstInt(v) => write!(f, "ConstInt({v})"),
-		InstData::ConstFloat(v) => write!(f, "ConstFloat({v})"),
+		InstData::ConstFloat(v) => write!(f, "ConstFloat({})", v.0),
 		InstData::ConstBool(v) => write!(f, "ConstBool({v})"),
 		InstData::ConstString(ref v) => write!(f, "ConstString(\"{v}\")"),
 
@@ -90,6 +90,16 @@ fn format_inst(f: &mut fmt::Formatter, function: &Function, inst_key: InstKey) -
 
 		InstData::Call{target, ref arguments} => {
 			write!(f, "{}( ", function.get_inst_name(target))?;
+
+			for arg in arguments {
+				write!(f, "{}, ", function.get_inst_name(*arg))?;
+			}
+
+			f.write_str(")")
+		}
+
+		InstData::Phi{ref arguments} => {
+			write!(f, "phi(")?;
 
 			for arg in arguments {
 				write!(f, "{}, ", function.get_inst_name(*arg))?;
