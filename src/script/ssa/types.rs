@@ -138,6 +138,7 @@ pub struct Inst {
 pub struct BasicBlock {
 	pub id: BasicBlockKey,
 	pub insts: SmallVec<[InstKey; 8]>,
+	pub predecessors: SmallVec<[BasicBlockKey; 2]>,
 	pub successors: SmallVec<[BasicBlockKey; 2]>,
 }
 
@@ -146,6 +147,7 @@ impl BasicBlock {
 		BasicBlock {
 			id,
 			insts: SmallVec::default(),
+			predecessors: SmallVec::default(),
 			successors: SmallVec::default(),
 		}
 	}
@@ -223,6 +225,10 @@ pub struct BlockBuilder<'f> {
 impl BlockBuilder<'_> {
 	pub fn add_named_inst(&mut self, name: &str, data: InstData) -> InstKey {
 		let successors = data.get_successors();
+		for &successor in successors.iter() {
+			self.function.blocks[successor].predecessors.push(self.id);
+		}
+
 		let key = self.function.new_inst(name, data);
 		let block = &mut self.function.blocks[self.id];
 		block.insts.push(key);
@@ -238,14 +244,14 @@ impl BlockBuilder<'_> {
 		self.add_named_inst("", data)
 	}
 
+	pub fn add_empty_phi(&mut self, name: &str) -> InstKey {
+		let inst = self.function.new_inst(name, InstData::Phi{ arguments: Default::default() });
+		self.function.blocks[self.id].insts.insert(0, inst);
+		inst
+	}
+
 	pub fn const_unit(&mut self) -> InstKey {
 		self.add_inst(InstData::ConstUnit)
-	}
-	pub fn const_int(&mut self, value: i64) -> InstKey {
-		self.add_inst(InstData::ConstInt(value))
-	}
-	pub fn const_float(&mut self, value: f64) -> InstKey {
-		self.add_inst(InstData::ConstFloat(LiteralFloat(value)))
 	}
 
 	pub fn jump(&mut self, to: BasicBlockKey) -> InstKey {
@@ -260,5 +266,9 @@ impl BlockBuilder<'_> {
 
 	pub fn switch_to_block(&mut self, to: BasicBlockKey) {
 		self.id = to;
+	}
+
+	pub fn get_predecessors(&self) -> &[BasicBlockKey] {
+		&self.function.blocks[self.id].predecessors
 	}
 }

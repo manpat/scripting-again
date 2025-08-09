@@ -1,19 +1,17 @@
 
 fn foobar() {
-	let foo = 4;
-	let bar = 5;
-	let v1 = bar;
-	let v2 = v1;
-	let v3 = v2;
+	let foo = 0;
 
-	bar = foo + 2;
-	bar = foo + 2;
+	if false {
+		let foo = 5;
+		foo += 1;
+	}
 
-	foo += bar;
-	bar /= 5;
-	foo -= bar;
-	bar *= foo;
-	foo %= 5;
+	foo += 5;
 
-	foo <= v3
+	if false {
+		foo += 1;
+	}
+
+	foo <= 2
 }

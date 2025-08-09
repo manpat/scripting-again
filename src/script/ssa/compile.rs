@@ -1,6 +1,7 @@
 use crate::script::{*};
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 
+use smallvec::SmallVec;
 use slotmap::{SlotMap, SparseSecondaryMap};
 
 slotmap::new_key_type! {
@@ -41,6 +42,7 @@ pub fn compile(_error_ctx: &ErrorContext, ast: &ast::SyntaxTree) -> anyhow::Resu
 
 struct Variable {
 	current_inst: SparseSecondaryMap<ssa::BasicBlockKey, ssa::InstKey>,
+	name: String,
 }
 
 #[derive(Default)]
@@ -58,19 +60,25 @@ struct LoopContext {
 struct FnCompileCtx {
 	scope_stack: Vec<Scope>,
 	variables: SlotMap<VariableKey, Variable>,
+
 	insts_by_hash: HashMap<u64, ssa::InstKey>,
+	sealed_blocks: HashSet<ssa::BasicBlockKey>,
+	incomplete_phis: SparseSecondaryMap<ssa::BasicBlockKey, SparseSecondaryMap<VariableKey, ssa::InstKey>>,
 
 	loop_stack: Vec<LoopContext>,
 }
 
 impl FnCompileCtx {
 	fn new_variable(&mut self, name: impl Into<String>) -> VariableKey {
+		let name = name.into();
+
 		let variable = self.variables.insert(Variable {
-			current_inst: SparseSecondaryMap::default()
+			current_inst: SparseSecondaryMap::default(),
+			name: name.clone(),
 		});
 
 		let scope = self.scope_stack.last_mut().unwrap();
-		scope.variables.insert(name.into(), variable);
+		scope.variables.insert(name, variable);
 
 		variable
 	}
@@ -98,8 +106,37 @@ impl FnCompileCtx {
 			return *local_inst
 		}
 
-		// TODO(pat.m): search predecessors and insert phi if more than one predecessor
-		unimplemented!()
+		self.read_variable_recursive(variable, builder)
+	}
+
+	fn read_variable_recursive(&mut self, variable: VariableKey, builder: &mut ssa::BlockBuilder) -> ssa::InstKey {
+		let block_id = builder.id;
+		let variable_name = &self.variables[variable].name;
+
+		let value = loop {
+			if !self.sealed_blocks.contains(&block_id) {
+				let phi = builder.add_empty_phi(variable_name);
+
+				// control flow graph is incomplete for this block, so we don't yet know all predecessors for this phi.
+				self.incomplete_phis.entry(block_id).unwrap().or_default()
+					.insert(variable, phi);
+
+				break phi
+			}
+
+			let block = &builder.function.blocks[block_id];
+			if let &[pred_id] = &*block.predecessors {
+				// Only one predecessor, no need to insert phis
+				break self.read_variable(variable, &mut builder.function.build_block(pred_id));
+			}
+
+			let phi = builder.add_empty_phi(variable_name);
+			self.write_variable(variable, phi, builder.id);
+			break self.add_phi_arguments(builder, variable, phi)
+		};
+
+		self.write_variable(variable, value, block_id);
+		value
 	}
 
 	fn memoize_inst(&mut self, builder: &mut ssa::BlockBuilder, inst_data: ssa::InstData) -> ssa::InstKey {
@@ -126,6 +163,47 @@ impl FnCompileCtx {
 			.clone()
 	}
 
+	// Sealed blocks are guaranteed not to gain any new predecessors
+	fn seal_block(&mut self, builder: &mut ssa::BlockBuilder) {
+		if !self.incomplete_phis.contains_key(builder.id) {
+			self.sealed_blocks.insert(builder.id);
+			return;
+		};
+
+		let keys: SmallVec<[VariableKey; 16]> = self.incomplete_phis[builder.id].keys().collect();
+
+		for variable_key in dbg!(keys) {
+			let Some(phi_inst) = self.incomplete_phis[builder.id].remove(variable_key) else { continue };
+			self.add_phi_arguments(builder, variable_key, phi_inst);
+		}
+
+		self.sealed_blocks.insert(builder.id);
+	}
+
+	fn add_phi_arguments(&mut self, builder: &mut ssa::BlockBuilder, variable_key: VariableKey, phi_inst: ssa::InstKey) -> ssa::InstKey {
+		let mut phi_arguments = SmallVec::<[ssa::InstKey; 2]>::new();
+		dbg!((builder.id, variable_key, phi_inst));
+		let predecessors: SmallVec<[ssa::BasicBlockKey; 4]> = dbg!(builder.get_predecessors()).into_iter().cloned().collect();
+
+		for pred_id in predecessors {
+			let pred_inst = self.read_variable(variable_key, &mut builder.function.build_block(pred_id));
+			phi_arguments.push(pred_inst);
+		}
+
+		phi_arguments.sort();
+		phi_arguments.dedup();
+
+		let phi_data = &mut builder.function.insts[phi_inst].data;
+		let ssa::InstData::Phi{ arguments } = phi_data else { unreachable!() };
+
+		arguments.extend(phi_arguments);
+
+		// TODO(pat.m): try remove trivial phis
+		// if phi_arguments only has one element after sort/dedup, then all uses of the phi can be replaced by its argument
+
+		phi_inst
+	}
+
 	fn push_scope(&mut self) {
 		self.scope_stack.push(Scope::default());
 	}
@@ -141,15 +219,20 @@ fn compile_function(mut compile_ctx: FnCompileCtx, body: &ast::AstBlock) -> anyh
 	let function_exit = function.exit;
 
 	let mut builder = function.build_block(function.entry);
+	compile_ctx.seal_block(&mut builder);
 
 	let final_inst = compile_ast_block(&mut compile_ctx, &mut builder, body)?;
 
 	// Jump to exit block
 	if builder.id != function_exit {
-		builder.jump_and_switch(function_exit);
+		builder.jump(function_exit);
+		compile_ctx.seal_block(&mut builder);
+
+		builder.switch_to_block(function_exit);
 	}
 
 	builder.add_inst(ssa::InstData::Return { value: final_inst });
+	compile_ctx.seal_block(&mut builder);
 
 	Ok(function)
 }
@@ -280,10 +363,45 @@ fn compile_ast_expr(compile_ctx: &mut FnCompileCtx, builder: &mut ssa::BlockBuil
 			value
 		}
 
+		E::If{condition: condition_ast, then_block: then_ast, else_block: None} => {
+			let entry_block = builder.function.new_block();
+			let then_block = builder.function.new_block();
+			let exit_block = builder.function.new_block();
+
+			compile_ctx.push_scope();
+
+			builder.jump_and_switch(entry_block);
+			compile_ctx.seal_block(builder);
+
+			let condition = compile_ast_expr(compile_ctx, builder, condition_ast)?;
+			let inst = builder.add_named_inst("if", ssa::InstData::JumpIf {
+				condition,
+				then_block,
+				else_block: exit_block,
+			});
+
+			builder.switch_to_block(then_block);
+			compile_ctx.seal_block(builder);
+
+			compile_ast_block(compile_ctx, builder, then_ast)?;
+			builder.jump_and_switch(exit_block);
+			compile_ctx.seal_block(builder);
+
+			compile_ctx.pop_scope();
+
+			inst
+		}
+
+		E::If{condition: _, then_block, else_block: Some(_else_block)} => {
+			unimplemented!()
+		}
+
 		E::While{condition, body} => {
 			let condition_block = builder.function.new_block();
 			let body_block = builder.function.new_block();
 			let exit_block = builder.function.new_block();
+
+			// TODO(pat.m): seal blocks!
 
 			compile_ctx.push_scope();
 			compile_ctx.loop_stack.push(LoopContext { condition_block, body_block, exit_block });

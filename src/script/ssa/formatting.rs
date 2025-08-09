@@ -18,6 +18,14 @@ pub fn format_function(f: &mut fmt::Formatter, function: &Function) -> fmt::Resu
 		let block = &function.blocks[block_key];
 
 		write!(f, "\t{block_key:?}:\n")?;
+		f.write_str("\t\t- from: ")?;
+
+		for pred_id in block.predecessors.iter() {
+			write!(f, "{pred_id:?} ")?;
+		}
+
+		f.write_str("\n")?;
+
 		for &inst_key in block.insts.iter() {
 			f.write_str("\t\t")?;
 			format_inst(f, function, inst_key)?;
